@@ -79,6 +79,10 @@ streamlit run streamlit_app.py
 
 Use API base URL `http://127.0.0.1:8000` in Streamlit.
 
+Theme toggle:
+- Use sidebar `Appearance -> Theme` to switch between `Auto`, `Light`, and `Dark` at runtime.
+- `Auto` follows Streamlit defaults, while `Light`/`Dark` apply in-app card and panel styles.
+
 ---
 
 ## Build C++ Module with FAISS (WSL)
