@@ -1,0 +1,9 @@
+{
+  "queries": [
+    "What does the architecture say about knowledge crystals?",
+    "How do we ingest PDF data into memory?",
+    "What are the fallback data sources?",
+    "How is vector retrieval configured?",
+    "How do we measure query latency and precision?"
+  ]
+}

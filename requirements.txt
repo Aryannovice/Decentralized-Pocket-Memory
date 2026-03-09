@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+streamlit
+pydantic
+pypdf
+httpx
+numpy
+sentence-transformers
+python-multipart

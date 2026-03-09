@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.venv/
+.idea/
+.vscode/
+build/
+dist/
+*.so
+*.pyd
+*.dll
+*.dylib
+*.a
+*.o
+*.obj
+data/
+uploads/
+*.faiss
