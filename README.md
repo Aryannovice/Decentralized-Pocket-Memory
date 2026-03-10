@@ -37,9 +37,9 @@ requirements.txt
 
 ## Supported Sources (MVP)
 
-- Implemented: `pdf`, `url`, `text`
-- Planned stubs: `slack`, `discord`, `github`
-- Unavailable source types return fallback guidance to `pdf/url/text`.
+- Implemented: `pdf`, `url`, `text`, `github`
+- Planned stubs: `slack`, `discord`
+- Unavailable source types return fallback guidance to `pdf/url/text/github`.
 
 ---
 
@@ -166,6 +166,7 @@ Endpoints:
 - `POST /index/mode` with `{"mode":"flat|hnsw|ivfpq"}`
 - `GET /metrics`
 - `GET /sources/status`
+- `POST /ingest/github` with `{"url":"https://github.com/<owner>/<repo>/blob/<branch>/<path>"}`
 
 If FAISS/C++ is unavailable, mode falls back to flat behavior.
 

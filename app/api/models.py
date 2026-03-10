@@ -14,6 +14,11 @@ class IngestUrlRequest(BaseModel):
     source_type: str = Field(default="url")
 
 
+class IngestGithubRequest(BaseModel):
+    url: str
+    source_type: str = Field(default="github")
+
+
 class QueryRequest(BaseModel):
     query: str
     top_k: int = 5

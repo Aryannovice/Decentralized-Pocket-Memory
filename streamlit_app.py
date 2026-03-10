@@ -155,6 +155,10 @@ with tab_ingest:
         url = st.text_input("URL")
         if st.button("Ingest URL"):
             st.json(safe_post(f"{API_BASE}/ingest/url", json_payload={"url": url}, timeout=60))
+    elif source_type == "github":
+        github_url = st.text_input("GitHub URL", placeholder="https://github.com/owner/repo/blob/main/README.md")
+        if st.button("Ingest GitHub"):
+            st.json(safe_post(f"{API_BASE}/ingest/github", json_payload={"url": github_url}, timeout=60))
     elif source_type == "text":
         text = st.text_area("Paste text")
         source_ref = st.text_input("Source ref", value="manual_text")

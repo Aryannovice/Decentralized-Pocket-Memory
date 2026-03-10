@@ -2,7 +2,14 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 
-from app.api.models import IndexModeRequest, IngestTextRequest, IngestUrlRequest, QueryRequest, QueryResponse
+from app.api.models import (
+    IndexModeRequest,
+    IngestGithubRequest,
+    IngestTextRequest,
+    IngestUrlRequest,
+    QueryRequest,
+    QueryResponse,
+)
 from app.services.engine import MemoryEngine
 
 app = FastAPI(title="Decentralized Pocket Memory API", version="0.1.0")
@@ -49,6 +56,14 @@ def ingest_text(request: IngestTextRequest) -> dict:
 def ingest_url(request: IngestUrlRequest) -> dict:
     return engine.ingest_from_source(
         source_type="url",
+        payload={"url": request.url, "source_ref": request.url},
+    )
+
+
+@app.post("/ingest/github")
+def ingest_github(request: IngestGithubRequest) -> dict:
+    return engine.ingest_from_source(
+        source_type="github",
         payload={"url": request.url, "source_ref": request.url},
     )
 
