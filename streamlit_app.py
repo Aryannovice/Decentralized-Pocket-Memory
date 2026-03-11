@@ -1,58 +1,65 @@
+import html
+import re
+
 import requests
 import streamlit as st
 
 
-def inject_styles(theme_mode: str) -> None:
-    if theme_mode == "Auto":
-        return
-
-    if theme_mode == "Light":
-        muted_color = "#4f4f4f"
-        card_bg = "rgba(248, 250, 252, 0.95)"
-        card_border = "rgba(160, 174, 192, 0.65)"
-        answer_bg = "rgba(66, 153, 225, 0.12)"
-        panel_bg = "#f8fafc"
-        text_color = "#1f2937"
-    else:
-        muted_color = "#b6b6b6"
-        card_bg = "rgba(30, 41, 59, 0.55)"
-        card_border = "rgba(100, 116, 139, 0.6)"
-        answer_bg = "rgba(76, 139, 245, 0.18)"
-        panel_bg = "#0f172a"
-        text_color = "#e5e7eb"
-
+def inject_styles() -> None:
     st.markdown(
-        f"""
+        """
         <style>
-        .stApp {{
-            background: {panel_bg};
-            color: {text_color};
-        }}
-        .pm-card {{
-            border: 1px solid {card_border};
+        .stApp { background: #f8fafc; color: #1f2937; }
+        .pm-card {
+            border: 1px solid rgba(160, 174, 192, 0.65);
             border-radius: 12px;
             padding: 0.9rem 1rem;
             margin-bottom: 0.8rem;
-            background: {card_bg};
-            line-height: 1.5;
-        }}
-        .pm-answer {{
+            background: rgba(248, 250, 252, 0.95);
+            line-height: 1.6;
+        }
+        .pm-answer {
             border-left: 4px solid #4c8bf5;
-            padding: 0.8rem 1rem;
+            padding: 0.85rem 1.1rem;
             border-radius: 8px;
-            background: {answer_bg};
-            margin-bottom: 0.8rem;
-        }}
-        .pm-muted {{
-            color: {muted_color};
-            font-size: 0.95rem;
-        }}
-        .pm-section-title {{
+            background: rgba(66, 153, 225, 0.10);
+            margin-bottom: 0.9rem;
+            line-height: 1.75;
+        }
+        .pm-muted { color: #4f4f4f; font-size: 0.95rem; }
+        .pm-section-title {
             margin-top: 0.25rem;
             margin-bottom: 0.45rem;
             font-size: 1.15rem;
             font-weight: 600;
-        }}
+        }
+        /* source badges */
+        .badge {
+            display: inline-block;
+            padding: 2px 9px;
+            border-radius: 6px;
+            font-size: 0.73rem;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+            vertical-align: middle;
+        }
+        .badge-reddit  { background: #ff4500; color: #fff; }
+        .badge-github  { background: #24292e; color: #fff; }
+        .badge-url     { background: #0ea5e9; color: #fff; }
+        .badge-pdf     { background: #e11d48; color: #fff; }
+        .badge-text    { background: #6b7280; color: #fff; }
+        .badge-unknown { background: #d1d5db; color: #374151; }
+        /* cursor fixes */
+        .stSelectbox > div > div,
+        .stMultiSelect > div > div,
+        .stButton > button,
+        .stFileUploader label,
+        [data-testid="stFileUploadDropzone"],
+        .stSlider [role="slider"],
+        .stTabs [role="tab"],
+        a { cursor: pointer !important; }
+        .stSelectbox input,
+        .stMultiSelect input { cursor: pointer !important; caret-color: transparent; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -77,27 +84,48 @@ def safe_post(url: str, json_payload: dict | None = None, files=None, data=None,
         return {"error": str(exc)}
 
 
+def _clean_display(text: str) -> str:
+    """Strip HTML tags/entities for user-facing display."""
+    text = html.unescape(text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+_BADGE: dict = {
+    "reddit": ("badge-reddit", "\U0001f534"),
+    "github": ("badge-github", "\U0001f431"),
+    "url":    ("badge-url",    "\U0001f310"),
+    "pdf":    ("badge-pdf",    "\U0001f4c4"),
+    "text":   ("badge-text",   "\U0001f4dd"),
+}
+
+
 def render_crystal_card(item: dict, rank: int) -> None:
-    summary = item.get("fact_summary", "")
-    short_summary = summary if len(summary) <= 280 else f"{summary[:280]}..."
+    summary = _clean_display(item.get("fact_summary", ""))
     score = float(item.get("score", 0.0))
     source_type = item.get("source_type", "unknown")
     source_ref = item.get("source_ref", "unknown")
     crystal_id = item.get("crystal_id", "unknown")
-    metadata = item.get("metadata", {})
+    badge_cls, icon = _BADGE.get(source_type, ("badge-unknown", "\U0001f539"))
+    preview = summary if len(summary) <= 340 else summary[:340] + "\u2026"
 
     st.markdown(
-        (
-            f"<div class='pm-card'><b>#{rank}</b> | score: <b>{score:.4f}</b><br/>"
-            f"source: <b>{source_type}</b> | ref: <code>{source_ref}</code><br/>"
-            f"{short_summary}</div>"
-        ),
+        f"""<div class='pm-card'>
+  <div style='display:flex;align-items:center;gap:0.5rem;margin-bottom:0.45rem'>
+    <span style='font-weight:700;font-size:1rem'>#{rank}</span>
+    <span class='badge {badge_cls}'>{icon} {source_type.upper()}</span>
+    <span style='margin-left:auto;color:#6b7280;font-size:0.82rem'>relevance&nbsp;<b>{score:.3f}</b></span>
+  </div>
+  <div style='font-size:0.91rem;color:#1f2937;line-height:1.6;margin-bottom:0.45rem'>{preview}</div>
+  <div style='font-size:0.76rem;color:#9ca3af;word-break:break-all'>&#128204; {source_ref}</div>
+</div>""",
         unsafe_allow_html=True,
     )
-    with st.expander(f"Details for result #{rank}"):
-        st.write(f"crystal_id: `{crystal_id}`")
-        st.json(metadata)
-        st.write("Full summary:")
+    with st.expander(f"Full content \u2014 result #{rank}"):
+        st.markdown(f"**Source:** `{source_type}` &nbsp;|&nbsp; **Ref:** `{source_ref}`", unsafe_allow_html=True)
+        st.markdown(f"**Crystal ID:** `{crystal_id}`")
+        st.divider()
         st.write(summary)
 
 
@@ -105,18 +133,7 @@ API_BASE = st.sidebar.text_input("API Base URL", value="http://127.0.0.1:8000")
 health = safe_get(f"{API_BASE}/health")
 current_mode = safe_get(f"{API_BASE}/index/mode").get("mode", "unknown")
 
-if "theme_mode" not in st.session_state:
-    st.session_state.theme_mode = "Auto"
-
-st.sidebar.write("### Appearance")
-theme_choice = st.sidebar.selectbox(
-    "Theme",
-    ["Auto", "Light", "Dark"],
-    index=["Auto", "Light", "Dark"].index(st.session_state.theme_mode),
-    help="Auto uses Streamlit default theme. Light/Dark apply in-app styles.",
-)
-st.session_state.theme_mode = theme_choice
-inject_styles(st.session_state.theme_mode)
+inject_styles()
 
 st.title("Decentralized Pocket Memory - MVP")
 st.caption("Ingest docs, build memory crystals, and query locally.")
@@ -139,7 +156,7 @@ tab_ingest, tab_query, tab_metrics = st.tabs(["Ingest", "Query", "Metrics"])
 with tab_ingest:
     st.markdown("<div class='pm-section-title'>Ingest Data</div>", unsafe_allow_html=True)
     st.markdown("<div class='pm-muted'>Start by ingesting a PDF, URL, or raw text.</div>", unsafe_allow_html=True)
-    source_type = st.selectbox("Select source type", ["pdf", "url", "text", "slack", "discord", "github"])
+    source_type = st.selectbox("Select source type", ["pdf", "url", "text", "reddit", "github", "slack", "discord"])
 
     if source_type == "pdf":
         pdf_file = st.file_uploader("Upload PDF", type=["pdf"])
@@ -155,6 +172,10 @@ with tab_ingest:
         url = st.text_input("URL")
         if st.button("Ingest URL"):
             st.json(safe_post(f"{API_BASE}/ingest/url", json_payload={"url": url}, timeout=60))
+    elif source_type == "reddit":
+        reddit_url = st.text_input("Reddit URL", placeholder="https://reddit.com/r/python/comments/abc123/title")
+        if st.button("Ingest Reddit"):
+            st.json(safe_post(f"{API_BASE}/ingest/reddit", json_payload={"url": reddit_url}, timeout=60))
     elif source_type == "github":
         github_url = st.text_input("GitHub URL", placeholder="https://github.com/owner/repo/blob/main/README.md")
         if st.button("Ingest GitHub"):
@@ -176,27 +197,46 @@ with tab_ingest:
 with tab_query:
     st.markdown("<div class='pm-section-title'>Ask Your Memory</div>", unsafe_allow_html=True)
     st.markdown(
-        "<div class='pm-muted'>Run a question after ingestion. Increase Top K for broader retrieval context.</div>",
+        "<div class='pm-muted'>Query spans all ingested sources. Use the source filter to narrow results.</div>",
         unsafe_allow_html=True,
     )
-    query = st.text_input("Ask your memory", placeholder="Example: What are the main architecture components?")
-    top_k = st.slider("Top K", min_value=1, max_value=10, value=5, help="Higher values return more crystals.")
-    if st.button("Run Query"):
-        data = safe_post(f"{API_BASE}/query", json_payload={"query": query, "top_k": top_k}, timeout=60)
-        if "error" in data:
-            st.error(data["error"])
+    query_input = st.text_input("Ask your memory", placeholder="Example: What are the main architecture components?")
+    qc1, qc2 = st.columns([2, 1])
+    with qc1:
+        top_k = st.slider("Top K", min_value=1, max_value=10, value=5, help="How many crystals to retrieve.")
+    with qc2:
+        source_filter = st.multiselect(
+            "Filter by source",
+            ["pdf", "url", "text", "reddit", "github"],
+            default=[],
+            help="Leave empty to search across all ingested sources.",
+        )
+    if st.button("Run Query", type="primary"):
+        q_payload: dict = {"query": query_input, "top_k": top_k}
+        if source_filter:
+            q_payload["source_types"] = source_filter
+        resp = safe_post(f"{API_BASE}/query", json_payload=q_payload, timeout=60)
+        if "error" in resp:
+            st.error(resp["error"])
         else:
-            st.write("### Answer")
-            st.markdown(f"<div class='pm-answer'>{data.get('answer', '')}</div>", unsafe_allow_html=True)
+            st.markdown("### Answer")
+            answer_text = _clean_display(resp.get("answer", ""))
+            if "\n" in answer_text:
+                st.markdown(
+                    f"<div class='pm-answer'>{answer_text.replace(chr(10), '<br>')}</div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(f"<div class='pm-answer'>{answer_text}</div>", unsafe_allow_html=True)
 
-            st.write("### Query Stats")
-            q_metrics = data.get("metrics", {})
-            q1, q2 = st.columns(2)
-            q1.metric("Latency (ms)", f"{float(q_metrics.get('query_latency_ms', 0.0)):.2f}")
-            q2.metric("Top-K overlap vs exact", f"{float(q_metrics.get('topk_overlap_vs_exact', 0.0)):.2f}")
+            st.markdown("### Query Stats")
+            q_metrics = resp.get("metrics", {})
+            qm1, qm2 = st.columns(2)
+            qm1.metric("Latency (ms)", f"{float(q_metrics.get('query_latency_ms', 0.0)):.2f}")
+            qm2.metric("Top-K overlap vs exact", f"{float(q_metrics.get('topk_overlap_vs_exact', 0.0)):.2f}")
 
-            st.write("### Retrieved Crystals")
-            crystals = data.get("crystals", [])
+            st.markdown("### Retrieved Crystals")
+            crystals = resp.get("crystals", [])
             if not crystals:
                 st.info("No relevant crystals returned. Try ingesting more data or increasing Top K.")
             else:

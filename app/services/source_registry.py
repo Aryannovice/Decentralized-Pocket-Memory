@@ -3,6 +3,7 @@ from typing import Dict
 from app.ml.adapters.base import SourceAdapter
 from app.ml.adapters.github_adapter import GitHubAdapter
 from app.ml.adapters.pdf_adapter import PdfAdapter
+from app.ml.adapters.reddit_adapter import RedditAdapter
 from app.ml.adapters.stub_adapters import UnavailableAdapter
 from app.ml.adapters.url_adapter import UrlAdapter
 
@@ -13,6 +14,7 @@ class SourceRegistry:
             "pdf": PdfAdapter(),
             "url": UrlAdapter(),
             "text": UnavailableAdapter("text", "Inline text uses API direct payload."),
+            "reddit": RedditAdapter(),
             "slack": UnavailableAdapter("slack", "Provide token + workspace export setup."),
             "discord": UnavailableAdapter("discord", "Provide bot token + channel scope."),
             "github": GitHubAdapter(),

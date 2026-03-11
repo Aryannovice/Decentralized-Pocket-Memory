@@ -1,3 +1,5 @@
+import html
+import re
 import time
 import uuid
 import zlib
@@ -117,7 +119,7 @@ class MemoryEngine:
         source_ref = payload.get("source_ref") or payload.get("url") or payload.get("file_path") or source_type
         return self.ingest_text(text=text, source_type=source_type, source_ref=source_ref)
 
-    def query(self, query: str, top_k: int = 5) -> dict:
+    def query(self, query: str, top_k: int = 5, source_types: list[str] | None = None) -> dict:
         start = time.perf_counter()
         qv = self.embedder.encode([query])[0]
         hits = self.index.search(qv, top_k=top_k)
@@ -130,11 +132,21 @@ class MemoryEngine:
             item["score"] = score
             crystals.append(item)
 
+        if source_types:
+            crystals = [c for c in crystals if c.get("source_type") in source_types]
+
+        def _clean(s: str) -> str:
+            return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html.unescape(s))).strip()
+
         if not crystals:
             answer = "No relevant memory crystals found yet. Ingest documents first."
         else:
-            answer_parts = [c["fact_summary"] for c in crystals[:3]]
-            answer = " ".join(answer_parts)
+            lines = []
+            for i, c in enumerate(crystals[:5], 1):
+                src = c.get("source_type", "unknown").upper()
+                summary = _clean(c["fact_summary"])
+                lines.append(f"{i}. **[{src}]** {summary}")
+            answer = "\n\n".join(lines)
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         approx_ids = [c["crystal_id"] for c in crystals]
         overlap = self._exact_overlap(qv, approx_ids, top_k)

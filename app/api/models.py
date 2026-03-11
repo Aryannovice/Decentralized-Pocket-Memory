@@ -19,9 +19,15 @@ class IngestGithubRequest(BaseModel):
     source_type: str = Field(default="github")
 
 
+class IngestRedditRequest(BaseModel):
+    url: str
+    source_type: str = Field(default="reddit")
+
+
 class QueryRequest(BaseModel):
     query: str
     top_k: int = 5
+    source_types: Optional[List[str]] = None
 
 
 class IndexModeRequest(BaseModel):

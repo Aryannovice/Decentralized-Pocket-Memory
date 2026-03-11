@@ -37,9 +37,9 @@ requirements.txt
 
 ## Supported Sources (MVP)
 
-- Implemented: `pdf`, `url`, `text`, `github`
+- Implemented: `pdf`, `url`, `text`, `github`, `reddit`
 - Planned stubs: `slack`, `discord`
-- Unavailable source types return fallback guidance to `pdf/url/text/github`.
+- Unavailable source types return fallback guidance to implemented sources.
 
 ---
 
@@ -167,6 +167,7 @@ Endpoints:
 - `GET /metrics`
 - `GET /sources/status`
 - `POST /ingest/github` with `{"url":"https://github.com/<owner>/<repo>/blob/<branch>/<path>"}`
+- `POST /ingest/reddit` with `{"url":"https://reddit.com/r/<subreddit>/comments/<id>/<title>"}`
 
 If FAISS/C++ is unavailable, mode falls back to flat behavior.
 

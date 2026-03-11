@@ -5,6 +5,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from app.api.models import (
     IndexModeRequest,
     IngestGithubRequest,
+    IngestRedditRequest,
     IngestTextRequest,
     IngestUrlRequest,
     QueryRequest,
@@ -68,6 +69,14 @@ def ingest_github(request: IngestGithubRequest) -> dict:
     )
 
 
+@app.post("/ingest/reddit")
+def ingest_reddit(request: IngestRedditRequest) -> dict:
+    return engine.ingest_from_source(
+        source_type="reddit",
+        payload={"url": request.url, "source_ref": request.url},
+    )
+
+
 @app.post("/ingest/pdf")
 async def ingest_pdf(
     file: UploadFile = File(...),
@@ -84,7 +93,7 @@ async def ingest_pdf(
 
 @app.post("/query", response_model=QueryResponse)
 def query(request: QueryRequest) -> QueryResponse:
-    result = engine.query(request.query, top_k=request.top_k)
+    result = engine.query(request.query, top_k=request.top_k, source_types=request.source_types)
     return QueryResponse(**result)
 
 
