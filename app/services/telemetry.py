@@ -21,6 +21,10 @@ class Telemetry:
         self.retrieval_overlap: Deque[float] = deque(maxlen=max_points)
         self.query_scores_mean: Deque[float] = deque(maxlen=max_points)
         self.citation_precision_proxy: Deque[float] = deque(maxlen=max_points)
+        self.prefilter_candidates: Deque[float] = deque(maxlen=max_points)
+        self.prefilter_ms: Deque[float] = deque(maxlen=max_points)
+        self.rerank_ms: Deque[float] = deque(maxlen=max_points)
+        self.total_retrieval_ms: Deque[float] = deque(maxlen=max_points)
         self.source_counts: Dict[str, int] = defaultdict(int)
         self.fallback_counts: Dict[str, int] = defaultdict(int)
         self.started_at = time()
@@ -37,11 +41,19 @@ class Telemetry:
         overlap: float,
         score_mean: float,
         citation_precision_proxy: float,
+        prefilter_candidates: float = 0.0,
+        prefilter_ms: float = 0.0,
+        rerank_ms: float = 0.0,
+        total_ms: float = 0.0,
     ) -> None:
         self.query_latencies_ms.append(latency_ms)
         self.retrieval_overlap.append(overlap)
         self.query_scores_mean.append(score_mean)
         self.citation_precision_proxy.append(citation_precision_proxy)
+        self.prefilter_candidates.append(prefilter_candidates)
+        self.prefilter_ms.append(prefilter_ms)
+        self.rerank_ms.append(rerank_ms)
+        self.total_retrieval_ms.append(total_ms)
 
     def _percentile(self, values: List[float], q: float) -> float:
         if not values:
@@ -54,6 +66,10 @@ class Telemetry:
         overlaps = list(self.retrieval_overlap)
         score_mean = list(self.query_scores_mean)
         cites = list(self.citation_precision_proxy)
+        pre_candidates = list(self.prefilter_candidates)
+        pre_ms = list(self.prefilter_ms)
+        rerank_ms = list(self.rerank_ms)
+        total_ms = list(self.total_retrieval_ms)
 
         total_chunks = sum(e.chunks for e in ingest)
         total_ingest_ms = sum(e.elapsed_ms for e in ingest)
@@ -75,6 +91,10 @@ class Telemetry:
             "retrieval": {
                 "mean_topk_overlap_vs_exact": statistics.mean(overlaps) if overlaps else 0.0,
                 "mean_score": statistics.mean(score_mean) if score_mean else 0.0,
+                "mean_prefilter_candidates": statistics.mean(pre_candidates) if pre_candidates else 0.0,
+                "mean_prefilter_ms": statistics.mean(pre_ms) if pre_ms else 0.0,
+                "mean_rerank_ms": statistics.mean(rerank_ms) if rerank_ms else 0.0,
+                "mean_total_retrieval_ms": statistics.mean(total_ms) if total_ms else 0.0,
             },
             "citation": {
                 "precision_proxy": statistics.mean(cites) if cites else 0.0,

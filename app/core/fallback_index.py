@@ -27,5 +27,15 @@ class InMemoryVectorIndex:
         idx = np.argsort(-scores)[:top_k]
         return [(self._ids[i], float(scores[i])) for i in idx]
 
+    def search_with_stats(self, query_vector: np.ndarray, top_k: int = 5) -> tuple[List[Tuple[str, float]], dict]:
+        results = self.search(query_vector, top_k=top_k)
+        stats = {
+            "prefilter_candidates": len(self._ids),
+            "prefilter_ms": 0.0,
+            "rerank_ms": 0.0,
+            "total_ms": 0.0,
+        }
+        return results, stats
+
     def size(self) -> int:
         return len(self._ids)

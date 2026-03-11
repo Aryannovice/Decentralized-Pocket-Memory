@@ -1,11 +1,15 @@
 #include "vector_index.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #ifdef USE_FAISS
@@ -29,6 +33,38 @@ std::vector<float> normalized_copy(const std::vector<float>& v) {
         out[i] = v[i] / norm;
     }
     return out;
+}
+
+std::vector<uint8_t> pack_sign_bits(const std::vector<float>& v) {
+    const size_t packed_size = (v.size() + 7U) / 8U;
+    std::vector<uint8_t> packed(packed_size, 0U);
+    for (size_t i = 0; i < v.size(); ++i) {
+        if (v[i] >= 0.0f) {
+            packed[i / 8U] |= static_cast<uint8_t>(1U << (7U - (i % 8U)));
+        }
+    }
+    return packed;
+}
+
+int hamming_similarity(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) {
+    const size_t size = std::min(a.size(), b.size());
+    size_t i = 0U;
+    int diff_bits = 0;
+
+    while (i + sizeof(uint64_t) <= size) {
+        uint64_t va = 0U;
+        uint64_t vb = 0U;
+        std::memcpy(&va, a.data() + i, sizeof(uint64_t));
+        std::memcpy(&vb, b.data() + i, sizeof(uint64_t));
+        diff_bits += __builtin_popcountll(va ^ vb);
+        i += sizeof(uint64_t);
+    }
+    while (i < size) {
+        diff_bits += __builtin_popcount(static_cast<unsigned>(a[i] ^ b[i]));
+        ++i;
+    }
+
+    return static_cast<int>(size * 8U) - diff_bits;
 }
 }
 
@@ -106,12 +142,16 @@ void VectorIndex::configure(
 
         s.index = std::move(ivfpq);
 
+    } else if (mode_ == "hybrid_binary") {
+        // Hybrid uses binary prefilter + local float rerank.
+        s.quantizer.reset();
+        s.index.reset();
     } else {
-        throw std::runtime_error("Unknown mode, expected: flat, hnsw, ivfpq");
+        throw std::runtime_error("Unknown mode, expected: flat, hnsw, ivfpq, hybrid_binary");
     }
 
 #else
-    if (mode_ != "flat") {
+    if (mode_ != "flat" && mode_ != "hybrid_binary") {
         throw std::runtime_error("ANN mode requested but module built without FAISS.");
     }
 #endif
@@ -143,51 +183,60 @@ void VectorIndex::add(
 
     auto& s = state();
 
-    if (!s.index) {
+    if (mode_ != "hybrid_binary" && !s.index) {
         configure("flat", dim_, hnsw_m_, ef_construction_,
                   ef_search_, ivf_nlist_, ivf_nprobe_);
     }
 
-    using FaissIdx = decltype(s.index->ntotal);
+    if (mode_ != "hybrid_binary") {
+        using FaissIdx = decltype(s.index->ntotal);
 
-    std::vector<float> matrix;
-    matrix.reserve(vectors.size() * static_cast<size_t>(dim_));
+        std::vector<float> matrix;
+        matrix.reserve(vectors.size() * static_cast<size_t>(dim_));
 
-    for (const auto& vec : vectors) {
+        for (const auto& vec : vectors) {
 
-        if (static_cast<int>(vec.size()) != dim_) {
-            throw std::runtime_error("vector dim mismatch in add()");
+            if (static_cast<int>(vec.size()) != dim_) {
+                throw std::runtime_error("vector dim mismatch in add()");
+            }
+
+            auto normed = normalized_copy(vec);
+            matrix.insert(matrix.end(), normed.begin(), normed.end());
         }
 
-        auto normed = normalized_copy(vec);
-        matrix.insert(matrix.end(), normed.begin(), normed.end());
-    }
+        if (mode_ == "ivfpq") {
 
-    if (mode_ == "ivfpq") {
+            auto* ivfpq = dynamic_cast<faiss::IndexIVFPQ*>(s.index.get());
 
-        auto* ivfpq = dynamic_cast<faiss::IndexIVFPQ*>(s.index.get());
-
-        if (ivfpq != nullptr && !ivfpq->is_trained) {
-            ivfpq->train(
-                static_cast<FaissIdx>(vectors.size()),
-                matrix.data());
+            if (ivfpq != nullptr && !ivfpq->is_trained) {
+                ivfpq->train(
+                    static_cast<FaissIdx>(vectors.size()),
+                    matrix.data());
+            }
         }
-    }
 
-    s.index->add(
-        static_cast<FaissIdx>(vectors.size()),
-        matrix.data());
+        s.index->add(
+            static_cast<FaissIdx>(vectors.size()),
+            matrix.data());
+    }
 
 #endif
 
     for (size_t i = 0; i < ids.size(); ++i) {
         ids_.push_back(ids[i]);
-        vectors_.push_back(normalized_copy(vectors[i]));
+        auto normed = normalized_copy(vectors[i]);
+        vectors_.push_back(normed);
+        binary_vectors_.push_back(pack_sign_bits(normed));
     }
 }
 
 std::vector<std::pair<std::string, float>>
 VectorIndex::search(const std::vector<float>& query, int top_k) const {
+    const auto total_start = std::chrono::steady_clock::now();
+    last_prefilter_ms_ = 0.0;
+    last_rerank_ms_ = 0.0;
+    last_prefilter_candidates_ = 0U;
+    last_total_ms_ = 0.0;
 
     if (vectors_.empty() || query.empty() || top_k <= 0) {
         return {};
@@ -201,7 +250,7 @@ VectorIndex::search(const std::vector<float>& query, int top_k) const {
 
     auto& s = state();
 
-    if (s.index) {
+    if (s.index && mode_ != "hybrid_binary") {
 
         using FaissIdx = decltype(s.index->ntotal);
 
@@ -238,10 +287,60 @@ VectorIndex::search(const std::vector<float>& query, int top_k) const {
             });
         }
 
+        const auto total_end = std::chrono::steady_clock::now();
+        last_total_ms_ = std::chrono::duration<double, std::milli>(total_end - total_start).count();
         return out;
     }
 
 #endif
+
+    if (mode_ == "hybrid_binary") {
+        const auto q = normalized_copy(query);
+        const auto qbin = pack_sign_bits(q);
+
+        const auto pre_start = std::chrono::steady_clock::now();
+        std::vector<std::pair<size_t, int>> pre;
+        pre.reserve(binary_vectors_.size());
+        for (size_t i = 0; i < binary_vectors_.size(); ++i) {
+            pre.push_back({i, hamming_similarity(qbin, binary_vectors_[i])});
+        }
+
+        const size_t prefilter_count = std::min(
+            std::max(static_cast<size_t>(top_k) * 8U, static_cast<size_t>(top_k)),
+            pre.size());
+        last_prefilter_candidates_ = prefilter_count;
+        std::partial_sort(
+            pre.begin(),
+            pre.begin() + static_cast<std::ptrdiff_t>(prefilter_count),
+            pre.end(),
+            [](const auto& a, const auto& b) { return a.second > b.second; });
+        const auto pre_end = std::chrono::steady_clock::now();
+        last_prefilter_ms_ = std::chrono::duration<double, std::milli>(pre_end - pre_start).count();
+
+        const auto rerank_start = std::chrono::steady_clock::now();
+        std::vector<std::pair<std::string, float>> reranked;
+        reranked.reserve(prefilter_count);
+        for (size_t i = 0; i < prefilter_count; ++i) {
+            const size_t idx = pre[i].first;
+            const auto& vec = vectors_[idx];
+            float dot = 0.0f;
+            for (size_t j = 0; j < vec.size(); ++j) {
+                dot += vec[j] * q[j];
+            }
+            reranked.push_back({ids_[idx], dot});
+        }
+        std::sort(
+            reranked.begin(),
+            reranked.end(),
+            [](const auto& a, const auto& b) { return a.second > b.second; });
+        if (static_cast<size_t>(top_k) < reranked.size()) {
+            reranked.resize(static_cast<size_t>(top_k));
+        }
+        const auto rerank_end = std::chrono::steady_clock::now();
+        last_rerank_ms_ = std::chrono::duration<double, std::milli>(rerank_end - rerank_start).count();
+        last_total_ms_ = std::chrono::duration<double, std::milli>(rerank_end - total_start).count();
+        return reranked;
+    }
 
     auto q = normalized_copy(query);
 
@@ -271,6 +370,8 @@ VectorIndex::search(const std::vector<float>& query, int top_k) const {
         scored.resize(static_cast<size_t>(top_k));
     }
 
+    const auto total_end = std::chrono::steady_clock::now();
+    last_total_ms_ = std::chrono::duration<double, std::milli>(total_end - total_start).count();
     return scored;
 }
 
@@ -280,4 +381,13 @@ std::string VectorIndex::mode() const {
 
 std::size_t VectorIndex::size() const {
     return ids_.size();
+}
+
+std::vector<double> VectorIndex::last_search_stats() const {
+    return {
+        static_cast<double>(last_prefilter_candidates_),
+        last_prefilter_ms_,
+        last_rerank_ms_,
+        last_total_ms_,
+    };
 }

@@ -76,6 +76,27 @@ class VectorIndexClient:
             return self._impl.search(query_vector.astype(np.float32), top_k)
         return self._impl.search(query_vector, top_k)
 
+    def search_with_stats(self, query_vector: np.ndarray, top_k: int = 5) -> tuple[List[Tuple[str, float]], dict]:
+        if self._mode.startswith("cpp-"):
+            results = self._impl.search(query_vector.astype(np.float32), top_k)
+            stats = {
+                "prefilter_candidates": 0,
+                "prefilter_ms": 0.0,
+                "rerank_ms": 0.0,
+                "total_ms": 0.0,
+            }
+            if hasattr(self._impl, "last_search_stats"):
+                raw = self._impl.last_search_stats()
+                if isinstance(raw, list) and len(raw) >= 4:
+                    stats = {
+                        "prefilter_candidates": int(raw[0]),
+                        "prefilter_ms": float(raw[1]),
+                        "rerank_ms": float(raw[2]),
+                        "total_ms": float(raw[3]),
+                    }
+            return results, stats
+        return self._impl.search_with_stats(query_vector, top_k)
+
     def reconfigure(self, mode: str) -> None:
         if not self._mode.startswith("cpp-"):
             self._requested_mode = "flat"

@@ -81,6 +81,7 @@ Use API base URL `http://127.0.0.1:8000` in Streamlit.
 
 Theme toggle:
 - Use sidebar `Appearance -> Theme` to switch between `Auto`, `Light`, and `Dark` at runtime.
+- Default is `Dark` (soft contrast for eye comfort).
 - `Auto` follows Streamlit defaults, while `Light`/`Dark` apply in-app card and panel styles.
 
 ---
@@ -159,17 +160,23 @@ Modes:
 - `flat` (exact baseline)
 - `hnsw` (ANN; requires C++ FAISS build)
 - `ivfpq` (ANN/compressed; requires C++ FAISS build)
+- `hybrid_binary` (1-bit binary prefilter + float rerank; keeps answer quality while reducing candidate search cost)
 
 Endpoints:
 - `GET /health`
 - `GET /index/mode`
-- `POST /index/mode` with `{"mode":"flat|hnsw|ivfpq"}`
+- `POST /index/mode` with `{"mode":"flat|hnsw|ivfpq|hybrid_binary"}`
 - `GET /metrics`
 - `GET /sources/status`
 - `POST /ingest/github` with `{"url":"https://github.com/<owner>/<repo>/blob/<branch>/<path>"}`
 - `POST /ingest/reddit` with `{"url":"https://reddit.com/r/<subreddit>/comments/<id>/<title>"}`
 
 If FAISS/C++ is unavailable, mode falls back to flat behavior.
+
+`hybrid_binary` notes:
+- Uses sign-bit packed crystals (1-bit per dimension) for fast Hamming prefilter.
+- Reranks shortlisted candidates using float similarity to preserve output compatibility.
+- Metrics include prefilter candidates/time and rerank time for mode comparison.
 
 ---
 

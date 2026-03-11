@@ -57,6 +57,7 @@ PYBIND11_MODULE(pocket_memory_cpp, m) {
         .def("search", [](const VectorIndex& self, py::array_t<float> query, int top_k) {
             return self.search(numpy_to_vector(query), top_k);
         })
+        .def("last_search_stats", &VectorIndex::last_search_stats)
         .def("mode", &VectorIndex::mode)
         .def("size", &VectorIndex::size);
 }

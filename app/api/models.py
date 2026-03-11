@@ -39,6 +39,8 @@ class CrystalOut(BaseModel):
     source_type: str
     source_ref: str
     fact_summary: str
+    clean_summary: Optional[str] = None
+    preview_summary: Optional[str] = None
     score: float
     metadata: Dict[str, Any] = Field(default_factory=dict)
 

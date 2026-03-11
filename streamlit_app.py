@@ -5,65 +5,144 @@ import requests
 import streamlit as st
 
 
-def inject_styles() -> None:
-    st.markdown(
-        """
-        <style>
-        .stApp { background: #f8fafc; color: #1f2937; }
-        .pm-card {
-            border: 1px solid rgba(160, 174, 192, 0.65);
-            border-radius: 12px;
-            padding: 0.9rem 1rem;
-            margin-bottom: 0.8rem;
-            background: rgba(248, 250, 252, 0.95);
-            line-height: 1.6;
-        }
-        .pm-answer {
-            border-left: 4px solid #4c8bf5;
-            padding: 0.85rem 1.1rem;
-            border-radius: 8px;
-            background: rgba(66, 153, 225, 0.10);
-            margin-bottom: 0.9rem;
-            line-height: 1.75;
-        }
-        .pm-muted { color: #4f4f4f; font-size: 0.95rem; }
-        .pm-section-title {
-            margin-top: 0.25rem;
-            margin-bottom: 0.45rem;
-            font-size: 1.15rem;
-            font-weight: 600;
-        }
-        /* source badges */
-        .badge {
-            display: inline-block;
-            padding: 2px 9px;
-            border-radius: 6px;
-            font-size: 0.73rem;
-            font-weight: 700;
-            letter-spacing: 0.03em;
-            vertical-align: middle;
-        }
-        .badge-reddit  { background: #ff4500; color: #fff; }
-        .badge-github  { background: #24292e; color: #fff; }
-        .badge-url     { background: #0ea5e9; color: #fff; }
-        .badge-pdf     { background: #e11d48; color: #fff; }
-        .badge-text    { background: #6b7280; color: #fff; }
-        .badge-unknown { background: #d1d5db; color: #374151; }
-        /* cursor fixes */
-        .stSelectbox > div > div,
-        .stMultiSelect > div > div,
-        .stButton > button,
-        .stFileUploader label,
-        [data-testid="stFileUploadDropzone"],
-        .stSlider [role="slider"],
-        .stTabs [role="tab"],
-        a { cursor: pointer !important; }
-        .stSelectbox input,
-        .stMultiSelect input { cursor: pointer !important; caret-color: transparent; }
-        </style>
-        """,
-        unsafe_allow_html=True,
+def inject_styles(theme_mode: str) -> None:
+    if theme_mode == "Auto":
+        st.markdown(
+            """
+            <style>
+            .pm-section-title {
+                margin-top: 0.20rem;
+                margin-bottom: 0.30rem;
+                font-size: 1.15rem;
+                font-weight: 600;
+            }
+            .badge {
+                display: inline-block;
+                padding: 2px 9px;
+                border-radius: 6px;
+                font-size: 0.73rem;
+                font-weight: 700;
+                letter-spacing: 0.03em;
+                vertical-align: middle;
+            }
+            .badge-reddit  { background: #ff4500; color: #fff; }
+            .badge-github  { background: #24292e; color: #fff; }
+            .badge-url     { background: #0ea5e9; color: #fff; }
+            .badge-pdf     { background: #e11d48; color: #fff; }
+            .badge-text    { background: #6b7280; color: #fff; }
+            .badge-unknown { background: #d1d5db; color: #374151; }
+            .stSelectbox > div > div,
+            .stMultiSelect > div > div,
+            .stButton > button,
+            .stFileUploader label,
+            [data-testid="stFileUploadDropzone"],
+            .stSlider [role="slider"],
+            .stTabs [role="tab"],
+            a { cursor: pointer !important; }
+            .stSelectbox input,
+            .stMultiSelect input { cursor: pointer !important; caret-color: transparent; }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        return
+
+    if theme_mode == "Light":
+        panel_bg = "#f8fafc"
+        panel_text = "#1f2937"
+        card_bg = "rgba(248, 250, 252, 0.95)"
+        card_border = "rgba(160, 174, 192, 0.65)"
+        answer_bg = "rgba(66, 153, 225, 0.10)"
+        muted_text = "#4f4f4f"
+        meta_text = "#6b7280"
+        ref_text = "#9ca3af"
+    else:
+        # Soft dark defaults for lower eye strain.
+        panel_bg = "#111827"
+        panel_text = "#e5e7eb"
+        card_bg = "rgba(30, 41, 59, 0.45)"
+        card_border = "rgba(100, 116, 139, 0.45)"
+        answer_bg = "rgba(76, 139, 245, 0.14)"
+        muted_text = "#aab4c5"
+        meta_text = "#bac3d4"
+        ref_text = "#8fa1bb"
+
+    css = """
+    <style>
+    :root {
+        --pm-panel-bg: __PANEL_BG__;
+        --pm-panel-text: __PANEL_TEXT__;
+        --pm-card-bg: __CARD_BG__;
+        --pm-card-border: __CARD_BORDER__;
+        --pm-answer-bg: __ANSWER_BG__;
+        --pm-muted-text: __MUTED_TEXT__;
+        --pm-meta-text: __META_TEXT__;
+        --pm-ref-text: __REF_TEXT__;
+    }
+    .stApp { background: var(--pm-panel-bg); color: var(--pm-panel-text); }
+    .pm-card {
+        border: 1px solid var(--pm-card-border);
+        border-radius: 12px;
+        padding: 0.9rem 1rem;
+        margin-bottom: 0.8rem;
+        background: var(--pm-card-bg);
+        line-height: 1.6;
+    }
+    .pm-answer {
+        border-left: 4px solid #4c8bf5;
+        padding: 0.85rem 1.1rem;
+        border-radius: 8px;
+        background: var(--pm-answer-bg);
+        margin-bottom: 0.9rem;
+        line-height: 1.75;
+    }
+    .pm-muted { color: var(--pm-muted-text); font-size: 0.95rem; }
+    .pm-section-title {
+        margin-top: 0.20rem;
+        margin-bottom: 0.30rem;
+        font-size: 1.15rem;
+        font-weight: 600;
+    }
+    /* source badges */
+    .badge {
+        display: inline-block;
+        padding: 2px 9px;
+        border-radius: 6px;
+        font-size: 0.73rem;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        vertical-align: middle;
+    }
+    .badge-reddit  { background: #ff4500; color: #fff; }
+    .badge-github  { background: #24292e; color: #fff; }
+    .badge-url     { background: #0ea5e9; color: #fff; }
+    .badge-pdf     { background: #e11d48; color: #fff; }
+    .badge-text    { background: #6b7280; color: #fff; }
+    .badge-unknown { background: #d1d5db; color: #374151; }
+    /* cursor fixes */
+    .stSelectbox > div > div,
+    .stMultiSelect > div > div,
+    .stButton > button,
+    .stFileUploader label,
+    [data-testid="stFileUploadDropzone"],
+    .stSlider [role="slider"],
+    .stTabs [role="tab"],
+    a { cursor: pointer !important; }
+    .stSelectbox input,
+    .stMultiSelect input { cursor: pointer !important; caret-color: transparent; }
+    </style>
+    """
+    css = (
+        css.replace("__PANEL_BG__", panel_bg)
+        .replace("__PANEL_TEXT__", panel_text)
+        .replace("__CARD_BG__", card_bg)
+        .replace("__CARD_BORDER__", card_border)
+        .replace("__ANSWER_BG__", answer_bg)
+        .replace("__MUTED_TEXT__", muted_text)
+        .replace("__META_TEXT__", meta_text)
+        .replace("__REF_TEXT__", ref_text)
     )
+    st.markdown(css, unsafe_allow_html=True)
 
 
 def safe_get(url: str, timeout: int = 10) -> dict:
@@ -102,23 +181,25 @@ _BADGE: dict = {
 
 
 def render_crystal_card(item: dict, rank: int) -> None:
-    summary = _clean_display(item.get("fact_summary", ""))
+    summary = _clean_display(item.get("clean_summary") or item.get("fact_summary", ""))
     score = float(item.get("score", 0.0))
     source_type = item.get("source_type", "unknown")
     source_ref = item.get("source_ref", "unknown")
     crystal_id = item.get("crystal_id", "unknown")
     badge_cls, icon = _BADGE.get(source_type, ("badge-unknown", "\U0001f539"))
-    preview = summary if len(summary) <= 340 else summary[:340] + "\u2026"
+    preview = _clean_display(item.get("preview_summary") or "")
+    if not preview:
+        preview = summary if len(summary) <= 340 else summary[:340] + "\u2026"
 
     st.markdown(
         f"""<div class='pm-card'>
   <div style='display:flex;align-items:center;gap:0.5rem;margin-bottom:0.45rem'>
     <span style='font-weight:700;font-size:1rem'>#{rank}</span>
     <span class='badge {badge_cls}'>{icon} {source_type.upper()}</span>
-    <span style='margin-left:auto;color:#6b7280;font-size:0.82rem'>relevance&nbsp;<b>{score:.3f}</b></span>
+    <span style='margin-left:auto;color:var(--pm-meta-text);font-size:0.82rem'>relevance&nbsp;<b>{score:.3f}</b></span>
   </div>
-  <div style='font-size:0.91rem;color:#1f2937;line-height:1.6;margin-bottom:0.45rem'>{preview}</div>
-  <div style='font-size:0.76rem;color:#9ca3af;word-break:break-all'>&#128204; {source_ref}</div>
+  <div style='font-size:0.91rem;color:var(--pm-panel-text);line-height:1.6;margin-bottom:0.45rem'>{preview}</div>
+  <div style='font-size:0.76rem;color:var(--pm-ref-text);word-break:break-all'>&#128204; {source_ref}</div>
 </div>""",
         unsafe_allow_html=True,
     )
@@ -133,7 +214,18 @@ API_BASE = st.sidebar.text_input("API Base URL", value="http://127.0.0.1:8000")
 health = safe_get(f"{API_BASE}/health")
 current_mode = safe_get(f"{API_BASE}/index/mode").get("mode", "unknown")
 
-inject_styles()
+if "theme_mode" not in st.session_state:
+    st.session_state.theme_mode = "Dark"
+
+st.sidebar.write("### Appearance")
+theme_mode = st.sidebar.selectbox(
+    "Theme",
+    ["Dark", "Light", "Auto"],
+    index=["Dark", "Light", "Auto"].index(st.session_state.theme_mode),
+    help="Dark is default (softer contrast). Auto follows Streamlit defaults.",
+)
+st.session_state.theme_mode = theme_mode
+inject_styles(theme_mode)
 
 st.title("Decentralized Pocket Memory - MVP")
 st.caption("Ingest docs, build memory crystals, and query locally.")
@@ -142,7 +234,7 @@ st.sidebar.write(f"Health: {health.get('status', 'unreachable')}")
 st.sidebar.write(f"Current index mode: {current_mode}")
 
 st.sidebar.write("### Retrieval")
-mode_choice = st.sidebar.selectbox("Retrieval mode", ["flat", "hnsw", "ivfpq"])
+mode_choice = st.sidebar.selectbox("Retrieval mode", ["flat", "hnsw", "ivfpq", "hybrid_binary"])
 if st.sidebar.button("Apply Retrieval Mode"):
     mode_resp = safe_post(f"{API_BASE}/index/mode", json_payload={"mode": mode_choice}, timeout=20)
     st.sidebar.json(mode_resp)
@@ -197,7 +289,7 @@ with tab_ingest:
 with tab_query:
     st.markdown("<div class='pm-section-title'>Ask Your Memory</div>", unsafe_allow_html=True)
     st.markdown(
-        "<div class='pm-muted'>Query spans all ingested sources. Use the source filter to narrow results.</div>",
+        "<div class='pm-muted'>Query spans all ingested sources. Use Top K + source filter for cleaner, focused results.</div>",
         unsafe_allow_html=True,
     )
     query_input = st.text_input("Ask your memory", placeholder="Example: What are the main architecture components?")
@@ -220,20 +312,24 @@ with tab_query:
             st.error(resp["error"])
         else:
             st.markdown("### Answer")
-            answer_text = _clean_display(resp.get("answer", ""))
-            if "\n" in answer_text:
-                st.markdown(
-                    f"<div class='pm-answer'>{answer_text.replace(chr(10), '<br>')}</div>",
-                    unsafe_allow_html=True,
-                )
+            answer_text = (resp.get("answer") or "").strip()
+            if answer_text:
+                safe_answer = html.escape(answer_text).replace("\n", "<br>")
+                st.markdown(f"<div class='pm-answer'>{safe_answer}</div>", unsafe_allow_html=True)
             else:
-                st.markdown(f"<div class='pm-answer'>{answer_text}</div>", unsafe_allow_html=True)
+                st.info("No answer generated yet.")
 
             st.markdown("### Query Stats")
             q_metrics = resp.get("metrics", {})
             qm1, qm2 = st.columns(2)
             qm1.metric("Latency (ms)", f"{float(q_metrics.get('query_latency_ms', 0.0)):.2f}")
             qm2.metric("Top-K overlap vs exact", f"{float(q_metrics.get('topk_overlap_vs_exact', 0.0)):.2f}")
+            retrieval_stats = q_metrics.get("retrieval", {})
+            if retrieval_stats:
+                qm3, qm4, qm5 = st.columns(3)
+                qm3.metric("Prefilter candidates", f"{int(retrieval_stats.get('prefilter_candidates', 0))}")
+                qm4.metric("Prefilter ms", f"{float(retrieval_stats.get('prefilter_ms', 0.0)):.2f}")
+                qm5.metric("Rerank ms", f"{float(retrieval_stats.get('rerank_ms', 0.0)):.2f}")
 
             st.markdown("### Retrieved Crystals")
             crystals = resp.get("crystals", [])
@@ -247,7 +343,7 @@ with tab_query:
 with tab_metrics:
     st.markdown("<div class='pm-section-title'>Metrics Dashboard</div>", unsafe_allow_html=True)
     st.markdown(
-        "<div class='pm-muted'>Refresh to view latency, quality, throughput, and memory trends.</div>",
+        "<div class='pm-muted'>Refresh to view latency, quality, throughput, and memory trends in this session.</div>",
         unsafe_allow_html=True,
     )
     if st.button("Refresh Metrics"):
@@ -277,6 +373,13 @@ with tab_metrics:
             c7.metric("Crystals", f"{memory.get('crystal_count', 0)}")
             c8.metric("Index size", f"{memory.get('index_size', 0)}")
             c9.metric("Compression ratio", f"{memory.get('compression_ratio', 1.0):.2f}")
+
+            st.write("### Hybrid Retrieval Breakdown")
+            h1, h2, h3, h4 = st.columns(4)
+            h1.metric("Mean prefilter candidates", f"{retrieval.get('mean_prefilter_candidates', 0.0):.1f}")
+            h2.metric("Mean prefilter ms", f"{retrieval.get('mean_prefilter_ms', 0.0):.2f}")
+            h3.metric("Mean rerank ms", f"{retrieval.get('mean_rerank_ms', 0.0):.2f}")
+            h4.metric("Mean retrieval ms", f"{retrieval.get('mean_total_retrieval_ms', 0.0):.2f}")
 
             samples = metrics.get("samples", {})
             if samples.get("queries", 0) == 0:

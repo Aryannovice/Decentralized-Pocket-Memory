@@ -15,6 +15,43 @@ from app.services.source_registry import SourceRegistry
 from app.services.telemetry import Telemetry
 
 
+def _strip_noise(text: str) -> str:
+    text = html.unescape(text)
+    # Remove fenced code blocks first.
+    text = re.sub(r"```[\s\S]*?```", " ", text)
+    # Remove inline code and markdown symbols.
+    text = re.sub(r"`+", " ", text)
+    text = re.sub(r"^#{1,6}\s*", "", text, flags=re.MULTILINE)
+    text = re.sub(r"[*_~>\[\]\(\)]", " ", text)
+    # Normalize whitespace/newlines.
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _truncate_sentences(text: str, max_chars: int = 220, max_sentences: int = 2) -> str:
+    if not text:
+        return ""
+    parts = re.split(r"(?<=[.!?])\s+", text)
+    out: list[str] = []
+    total = 0
+    for part in parts:
+        if not part:
+            continue
+        candidate_len = total + len(part) + (1 if out else 0)
+        if out and candidate_len > max_chars:
+            break
+        out.append(part)
+        total = candidate_len
+        if len(out) >= max_sentences:
+            break
+    if not out:
+        return text[:max_chars].rstrip() + ("..." if len(text) > max_chars else "")
+    result = " ".join(out).strip()
+    if len(result) > max_chars:
+        result = result[:max_chars].rstrip() + "..."
+    return result
+
+
 class MemoryEngine:
     def __init__(self) -> None:
         self.sources = SourceRegistry()
@@ -122,7 +159,7 @@ class MemoryEngine:
     def query(self, query: str, top_k: int = 5, source_types: list[str] | None = None) -> dict:
         start = time.perf_counter()
         qv = self.embedder.encode([query])[0]
-        hits = self.index.search(qv, top_k=top_k)
+        hits, retrieval_stats = self.index.search_with_stats(qv, top_k=top_k)
         crystals = []
         for crystal_id, score in hits:
             crystal = self.crystals.get(crystal_id)
@@ -130,23 +167,39 @@ class MemoryEngine:
                 continue
             item = dict(crystal)
             item["score"] = score
+            cleaned = _strip_noise(item.get("fact_summary", ""))
+            item["clean_summary"] = cleaned
+            item["preview_summary"] = _truncate_sentences(cleaned, max_chars=220, max_sentences=2)
             crystals.append(item)
 
         if source_types:
             crystals = [c for c in crystals if c.get("source_type") in source_types]
 
-        def _clean(s: str) -> str:
-            return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html.unescape(s))).strip()
-
         if not crystals:
             answer = "No relevant memory crystals found yet. Ingest documents first."
         else:
-            lines = []
-            for i, c in enumerate(crystals[:5], 1):
-                src = c.get("source_type", "unknown").upper()
-                summary = _clean(c["fact_summary"])
-                lines.append(f"{i}. **[{src}]** {summary}")
-            answer = "\n\n".join(lines)
+            top = crystals[:5]
+            summary_line = _truncate_sentences(top[0].get("clean_summary", ""), max_chars=260, max_sentences=2)
+            key_points = [
+                f"- [{c.get('source_type', 'unknown').upper()}] {c.get('preview_summary', '')}"
+                for c in top
+            ]
+            seen_sources: set[str] = set()
+            source_lines: list[str] = []
+            for c in top:
+                source_key = f"{c.get('source_type', 'unknown').upper()} | {c.get('source_ref', 'unknown')}"
+                if source_key in seen_sources:
+                    continue
+                seen_sources.add(source_key)
+                source_lines.append(f"- {source_key}")
+            answer = (
+                "Summary:\n"
+                f"{summary_line}\n\n"
+                "Key points:\n"
+                + "\n".join(key_points)
+                + "\n\nSources:\n"
+                + "\n".join(source_lines)
+            )
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         approx_ids = [c["crystal_id"] for c in crystals]
         overlap = self._exact_overlap(qv, approx_ids, top_k)
@@ -157,6 +210,10 @@ class MemoryEngine:
             overlap=overlap,
             score_mean=score_mean,
             citation_precision_proxy=citation_precision_proxy,
+            prefilter_candidates=float(retrieval_stats.get("prefilter_candidates", 0.0)),
+            prefilter_ms=float(retrieval_stats.get("prefilter_ms", 0.0)),
+            rerank_ms=float(retrieval_stats.get("rerank_ms", 0.0)),
+            total_ms=float(retrieval_stats.get("total_ms", 0.0)),
         )
         return {
             "answer": answer,
@@ -164,5 +221,6 @@ class MemoryEngine:
             "metrics": {
                 "query_latency_ms": elapsed_ms,
                 "topk_overlap_vs_exact": overlap,
+                "retrieval": retrieval_stats,
             },
         }
