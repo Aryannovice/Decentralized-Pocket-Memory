@@ -87,6 +87,22 @@ class MemoryEngine:
         arr = np.asarray(vector, dtype=np.float32)
         return hashlib.sha256(arr.tobytes()).hexdigest()
 
+    def _compute_crystal_proof_hash(
+        self,
+        crystal_id: str,
+        content_hash: str,
+        embedding_hash: str,
+        created_at: str,
+    ) -> str:
+        payload = {
+            "crystal_id": crystal_id,
+            "content_hash": content_hash,
+            "embedding_hash": embedding_hash,
+            "created_at": created_at,
+        }
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
     def _save_registry_store(self) -> None:
         self._registry_dir.mkdir(parents=True, exist_ok=True)
         self._crystal_registry_path.write_text(
@@ -228,10 +244,27 @@ class MemoryEngine:
         for crystal_id, item in self.crystal_registry.items():
             if not isinstance(item, dict):
                 continue
+            crystal_id_str = str(item.get("crystal_id", crystal_id))
+            created_at = str(item.get("created_at", self._now_iso()))
+            content_hash = str(item.get("content_hash", ""))
+            embedding_hash = str(item.get("embedding_hash", ""))
+            proof_hash = str(item.get("crystal_proof_hash", ""))
+            if not proof_hash:
+                proof_hash = self._compute_crystal_proof_hash(
+                    crystal_id=crystal_id_str,
+                    content_hash=content_hash,
+                    embedding_hash=embedding_hash,
+                    created_at=created_at,
+                )
             owner_id = str(item.get("owner_id") or item.get("creator_id") or "local_user")
             normalized = dict(item)
+            normalized["crystal_id"] = crystal_id_str
+            normalized["created_at"] = created_at
+            normalized["content_hash"] = content_hash
+            normalized["embedding_hash"] = embedding_hash
+            normalized["crystal_proof_hash"] = proof_hash
             normalized["owner_id"] = owner_id
-            normalized_registry[str(crystal_id)] = normalized
+            normalized_registry[crystal_id_str] = normalized
             self.get_or_create_wallet(owner_id)
         self.crystal_registry = normalized_registry
 
@@ -263,14 +296,24 @@ class MemoryEngine:
     ) -> None:
         existing = self.crystal_registry.get(crystal_id, {})
         owner_id = str(existing.get("owner_id", creator_id))
+        created_at = str(existing.get("created_at", self._now_iso()))
+        content_hash = self._hash_text(content)
+        embedding_hash = self._hash_vector(vector)
+        crystal_proof_hash = self._compute_crystal_proof_hash(
+            crystal_id=crystal_id,
+            content_hash=content_hash,
+            embedding_hash=embedding_hash,
+            created_at=created_at,
+        )
         self.crystal_registry[crystal_id] = {
             "crystal_id": crystal_id,
             "creator_id": existing.get("creator_id", creator_id),
             "owner_id": owner_id,
             "source_url": existing.get("source_url", source_url),
-            "content_hash": self._hash_text(content),
-            "embedding_hash": self._hash_vector(vector),
-            "created_at": existing.get("created_at", self._now_iso()),
+            "content_hash": content_hash,
+            "embedding_hash": embedding_hash,
+            "crystal_proof_hash": crystal_proof_hash,
+            "created_at": created_at,
             "usage_count": int(existing.get("usage_count", 0)),
             "reward_balance": float(existing.get("reward_balance", 0.0)),
             "contribution_total": float(existing.get("contribution_total", 0.0)),

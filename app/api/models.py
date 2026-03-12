@@ -72,6 +72,7 @@ class CrystalRegistryRecord(BaseModel):
     source_url: str
     content_hash: str
     embedding_hash: str
+    crystal_proof_hash: str = ""
     created_at: str
     usage_count: int = 0
     reward_balance: float = 0.0
@@ -121,6 +122,9 @@ class WalletCrystalOut(BaseModel):
     creator_id: str
     owner_id: str
     source_url: str
+    content_hash: str = ""
+    embedding_hash: str = ""
+    crystal_proof_hash: str = ""
     created_at: str
     usage_count: int = 0
     reward_balance: float = 0.0
