@@ -7,3 +7,5 @@ httpx
 numpy
 sentence-transformers
 python-multipart
+web3
+eth-account

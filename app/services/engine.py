@@ -17,6 +17,7 @@ from app.ml.distill import distill_chunk
 from app.ml.embeddings import Embedder
 from app.services.source_registry import SourceRegistry
 from app.services.telemetry import Telemetry
+from app.services.blockchain import BlockchainService
 
 
 def _strip_noise(text: str) -> str:
@@ -65,6 +66,7 @@ class MemoryEngine:
         self._vectors: List[np.ndarray] = []
         self._vector_ids: List[str] = []
         self.telemetry = Telemetry()
+        self.blockchain = BlockchainService()  # Add blockchain service
         self.crystal_registry: Dict[str, dict] = {}
         self.query_usage: List[dict] = []
         self.wallets: Dict[str, dict] = {}
@@ -305,6 +307,9 @@ class MemoryEngine:
             embedding_hash=embedding_hash,
             created_at=created_at,
         )
+        # Submit to blockchain asynchronously (if this is a new crystal)
+        is_new_crystal = crystal_id not in self.crystal_registry
+        
         self.crystal_registry[crystal_id] = {
             "crystal_id": crystal_id,
             "creator_id": existing.get("creator_id", creator_id),
@@ -319,7 +324,14 @@ class MemoryEngine:
             "contribution_total": float(existing.get("contribution_total", 0.0)),
             "last_contribution": float(existing.get("last_contribution", 0.0)),
             "last_reward_delta": float(existing.get("last_reward_delta", 0.0)),
+            "blockchain_tx": existing.get("blockchain_tx", ""),  # Add blockchain transaction hash
+            "blockchain_verified": existing.get("blockchain_verified", False),  # Add verification status
         }
+        
+        # Submit to blockchain if this is a new crystal
+        if is_new_crystal:
+            self._submit_to_blockchain(crystal_id, crystal_proof_hash, creator_id)
+        
         self.get_or_create_wallet(owner_id)
 
     def _sync_registry_with_crystals(self) -> None:
@@ -743,3 +755,95 @@ class MemoryEngine:
             reverse=True,
         )
         return rows[: max(limit, 0)]
+    
+    # ===== BLOCKCHAIN INTEGRATION METHODS =====
+    
+    def _submit_to_blockchain(self, crystal_id: str, proof_hash: str, creator_id: str) -> None:
+        """Submit crystal proof hash to blockchain asynchronously."""
+        try:
+            import threading
+            import asyncio
+            
+            def submit():
+                try:
+                    if self.blockchain.is_available():
+                        # Create new event loop for this thread
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            tx_hash = loop.run_until_complete(
+                                self.blockchain.store_crystal_hash(crystal_id, proof_hash, creator_id)
+                            )
+                            if tx_hash:
+                                # Update registry with blockchain transaction
+                                registry_entry = self.crystal_registry.get(crystal_id)
+                                if registry_entry:
+                                    registry_entry["blockchain_tx"] = tx_hash
+                                    registry_entry["blockchain_verified"] = True
+                                    self._save_registry_store()
+                                    print(f"✅ Crystal {crystal_id[:8]}... stored on blockchain: {tx_hash}")
+                            else:
+                                print(f"⚠️  Failed to store crystal {crystal_id[:8]}... on blockchain")
+                        finally:
+                            loop.close()
+                    else:
+                        print("⚠️  Blockchain service not available")
+                except Exception as e:
+                    print(f"⚠️  Blockchain submission error: {e}")
+            
+            # Submit in background thread to avoid blocking
+            thread = threading.Thread(target=submit, daemon=True)
+            thread.start()
+            
+        except Exception as e:
+            print(f"⚠️  Failed to start blockchain submission: {e}")
+    
+    def verify_crystal_on_blockchain(self, crystal_id: str) -> dict:
+        """Verify a crystal's authenticity using blockchain."""
+        try:
+            if not self.blockchain.is_available():
+                return {"verified": False, "error": "Blockchain service not available"}
+                
+            result = self.blockchain.verify_crystal_hash(crystal_id)
+            if result:
+                return result
+            else:
+                return {"verified": False, "error": "Verification failed"}
+                
+        except Exception as e:
+            return {"verified": False, "error": str(e)}
+    
+    def get_blockchain_account_info(self) -> dict:
+        """Get blockchain account information."""
+        try:
+            return self.blockchain.get_account_info()
+        except Exception as e:
+            return {
+                "address": None,
+                "connected": False,
+                "balance": "0",
+                "network": "Unknown", 
+                "error": str(e)
+            }
+    
+    def get_blockchain_status(self) -> dict:
+        """Get overall blockchain integration status."""
+        account_info = self.get_blockchain_account_info()
+        
+        verified_crystals = sum(
+            1 for crystal in self.crystal_registry.values() 
+            if crystal.get("blockchain_verified", False)
+        )
+        
+        pending_crystals = sum(
+            1 for crystal in self.crystal_registry.values() 
+            if crystal.get("blockchain_tx", "") and not crystal.get("blockchain_verified", False)
+        )
+        
+        return {
+            "available": self.blockchain.is_available(),
+            "account": account_info,
+            "crystals_verified": verified_crystals,
+            "crystals_pending": pending_crystals,
+            "total_crystals": len(self.crystal_registry)
+        }

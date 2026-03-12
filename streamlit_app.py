@@ -549,6 +549,55 @@ with tab_registry:
                     st.json(qitems)
             else:
                 st.info("No query usage logs yet. Run a few queries.")
+    
+    # ===== BLOCKCHAIN INTEGRATION SECTION =====
+    st.write("### 🔗 Blockchain Verification")
+    
+    if st.button("Refresh Blockchain Status"):
+        blockchain_resp = safe_get(f"{API_BASE}/blockchain/status")
+        
+        if "error" in blockchain_resp:
+            st.error(f"Blockchain error: {blockchain_resp['error']}")
+        else:
+            # Show account info
+            account = blockchain_resp.get("account", {})
+            st.markdown("**Account Information:**")
+            
+            if account.get("connected", False):
+                st.success(f"🟢 Connected to {account.get('network', 'Unknown')}")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Address", account.get("address", "N/A")[:10] + "..." if account.get("address") else "N/A")
+                with col2:
+                    st.metric("Balance", account.get("balance", "0"))
+            else:
+                st.warning(f"🟡 Not connected: {account.get('error', 'Unknown error')}")
+            
+            # Show verification stats
+            st.markdown("**Crystal Verification Status:**")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Verified on Blockchain", blockchain_resp.get("crystals_verified", 0))
+            with col2:
+                st.metric("Pending Verification", blockchain_resp.get("crystals_pending", 0))
+            with col3:
+                st.metric("Total Crystals", blockchain_resp.get("total_crystals", 0))
+            
+            # Crystal verification tool
+            st.markdown("**Verify Individual Crystal:**")
+            verify_crystal_id = st.text_input("Crystal ID to verify:", key="verify_crystal_id")
+            if st.button("Verify on Blockchain") and verify_crystal_id:
+                verify_resp = safe_post(f"{API_BASE}/blockchain/verify/{verify_crystal_id}", {})
+                if "error" in verify_resp:
+                    st.error(f"Verification failed: {verify_resp['error']}")
+                else:
+                    if verify_resp.get("verified", False):
+                        st.success("✅ Crystal verified on blockchain!")
+                        st.json(verify_resp)
+                    else:
+                        st.warning("❌ Crystal not found on blockchain")
+                        if "error" in verify_resp:
+                            st.error(verify_resp["error"])
 
 with tab_wallet:
     st.markdown("<div class='pm-section-title'>Wallets and Transferability</div>", unsafe_allow_html=True)

@@ -192,3 +192,27 @@ def transfer_wallet_crystal(request: TransferRequest) -> dict:
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+# ===== BLOCKCHAIN INTEGRATION ENDPOINTS =====
+
+@app.get("/blockchain/status")
+def get_blockchain_status() -> dict:
+    """Get blockchain integration status and account info."""
+    return engine.get_blockchain_status()
+
+
+@app.get("/blockchain/account")
+def get_blockchain_account() -> dict:
+    """Get blockchain account information."""
+    return engine.get_blockchain_account_info()
+
+
+@app.post("/blockchain/verify/{crystal_id}")
+def verify_crystal_blockchain(crystal_id: str) -> dict:
+    """Verify a crystal's proof hash on the blockchain."""
+    try:
+        result = engine.verify_crystal_on_blockchain(crystal_id)
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
