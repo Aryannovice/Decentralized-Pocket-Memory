@@ -8,12 +8,24 @@ from app.ml.adapters.stub_adapters import UnavailableAdapter
 from app.ml.adapters.url_adapter import UrlAdapter
 
 
+class InlineTextAdapter(SourceAdapter):
+    source_name = "text"
+
+    def read(self, payload: dict) -> str:
+        # Inline text payload is passed directly via API.
+        return str(payload.get("text", ""))
+
+    def status(self) -> tuple[bool, str]:
+        return True, "ready (inline via API payload)"
+
+
 class SourceRegistry:
     def __init__(self) -> None:
         self._sources: Dict[str, SourceAdapter] = {
             "pdf": PdfAdapter(),
             "url": UrlAdapter(),
-            "text": UnavailableAdapter("text", "Inline text uses API direct payload."),
+            # Inline text ingestion is handled directly by the API; mark enabled for UI clarity.
+            "text": InlineTextAdapter(),
             "reddit": RedditAdapter(),
             "slack": UnavailableAdapter("slack", "Provide token + workspace export setup."),
             "discord": UnavailableAdapter("discord", "Provide bot token + channel scope."),
