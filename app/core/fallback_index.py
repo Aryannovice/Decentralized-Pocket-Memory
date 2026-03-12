@@ -39,3 +39,16 @@ class InMemoryVectorIndex:
 
     def size(self) -> int:
         return len(self._ids)
+
+    def save_state(self, path: str) -> None:
+        with open(path, "wb") as f:
+            np.savez_compressed(
+                f,
+                ids=np.asarray(self._ids, dtype=object),
+                vectors=self._vectors.astype(np.float32),
+            )
+
+    def load_state(self, path: str) -> None:
+        data = np.load(path, allow_pickle=True)
+        self._ids = [str(x) for x in data["ids"].tolist()]
+        self._vectors = np.asarray(data["vectors"], dtype=np.float32)

@@ -3,13 +3,23 @@ from pathlib import Path
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 
 from app.api.models import (
+    CrystalRegistryListResponse,
+    CrystalRegistryRecord,
     IndexModeRequest,
     IngestGithubRequest,
     IngestRedditRequest,
+    QueryUsageListResponse,
+    QueryUsageRecord,
+    StatePathRequest,
+    TransferListResponse,
+    TransferOut,
+    TransferRequest,
     IngestTextRequest,
     IngestUrlRequest,
     QueryRequest,
     QueryResponse,
+    WalletCrystalOut,
+    WalletOut,
 )
 from app.services.engine import MemoryEngine
 
@@ -49,6 +59,7 @@ def ingest_text(request: IngestTextRequest) -> dict:
         payload={
             "text": request.text,
             "source_ref": request.source_ref or "manual",
+            "creator_id": request.creator_id or "local_user",
         },
     )
 
@@ -57,7 +68,7 @@ def ingest_text(request: IngestTextRequest) -> dict:
 def ingest_url(request: IngestUrlRequest) -> dict:
     return engine.ingest_from_source(
         source_type="url",
-        payload={"url": request.url, "source_ref": request.url},
+        payload={"url": request.url, "source_ref": request.url, "creator_id": request.creator_id or "local_user"},
     )
 
 
@@ -65,7 +76,7 @@ def ingest_url(request: IngestUrlRequest) -> dict:
 def ingest_github(request: IngestGithubRequest) -> dict:
     return engine.ingest_from_source(
         source_type="github",
-        payload={"url": request.url, "source_ref": request.url},
+        payload={"url": request.url, "source_ref": request.url, "creator_id": request.creator_id or "local_user"},
     )
 
 
@@ -73,7 +84,7 @@ def ingest_github(request: IngestGithubRequest) -> dict:
 def ingest_reddit(request: IngestRedditRequest) -> dict:
     return engine.ingest_from_source(
         source_type="reddit",
-        payload={"url": request.url, "source_ref": request.url},
+        payload={"url": request.url, "source_ref": request.url, "creator_id": request.creator_id or "local_user"},
     )
 
 
@@ -81,13 +92,14 @@ def ingest_reddit(request: IngestRedditRequest) -> dict:
 async def ingest_pdf(
     file: UploadFile = File(...),
     source_ref: str = Form(default="uploaded_pdf"),
+    creator_id: str = Form(default="local_user"),
 ) -> dict:
     out_path = uploads_dir / file.filename
     data = await file.read()
     out_path.write_bytes(data)
     return engine.ingest_from_source(
         source_type="pdf",
-        payload={"file_path": str(out_path), "source_ref": source_ref},
+        payload={"file_path": str(out_path), "source_ref": source_ref, "creator_id": creator_id},
     )
 
 
@@ -100,3 +112,83 @@ def query(request: QueryRequest) -> QueryResponse:
 @app.get("/metrics")
 def metrics() -> dict:
     return engine.get_metrics()
+
+
+@app.post("/state/save")
+def save_state(request: StatePathRequest) -> dict:
+    try:
+        return engine.save_state(request.path)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/state/load")
+def load_state(request: StatePathRequest) -> dict:
+    try:
+        return engine.load_state(request.path)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/registry/crystals", response_model=CrystalRegistryListResponse)
+def list_registry_crystals(limit: int = 200) -> CrystalRegistryListResponse:
+    items = engine.list_crystal_registry(limit=limit)
+    return CrystalRegistryListResponse(items=items, count=len(items))
+
+
+@app.get("/registry/crystals/{crystal_id}", response_model=CrystalRegistryRecord)
+def get_registry_crystal(crystal_id: str) -> CrystalRegistryRecord:
+    item = engine.get_crystal_registry(crystal_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"Crystal not found: {crystal_id}")
+    return CrystalRegistryRecord(**item)
+
+
+@app.get("/registry/queries", response_model=QueryUsageListResponse)
+def list_registry_queries(limit: int = 200) -> QueryUsageListResponse:
+    items = engine.list_query_usage(limit=limit)
+    return QueryUsageListResponse(items=items, count=len(items))
+
+
+@app.get("/registry/queries/{query_id}", response_model=QueryUsageRecord)
+def get_registry_query(query_id: str) -> QueryUsageRecord:
+    item = engine.get_query_usage(query_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"Query not found: {query_id}")
+    return QueryUsageRecord(**item)
+
+
+@app.get("/registry/leaderboard", response_model=CrystalRegistryListResponse)
+def registry_leaderboard(limit: int = 50) -> CrystalRegistryListResponse:
+    items = engine.get_registry_leaderboard(limit=limit)
+    return CrystalRegistryListResponse(items=items, count=len(items))
+
+
+@app.get("/wallets/{owner_id}", response_model=WalletOut)
+def get_wallet(owner_id: str) -> WalletOut:
+    return WalletOut(**engine.get_wallet_snapshot(owner_id))
+
+
+@app.get("/wallets/{owner_id}/crystals", response_model=list[WalletCrystalOut])
+def get_wallet_crystals(owner_id: str, limit: int = 200) -> list[WalletCrystalOut]:
+    items = engine.list_wallet_crystals(owner_id=owner_id, limit=limit)
+    return [WalletCrystalOut(**item) for item in items]
+
+
+@app.get("/wallets/{owner_id}/transfers", response_model=TransferListResponse)
+def get_wallet_transfers(owner_id: str, limit: int = 200) -> TransferListResponse:
+    items = engine.list_wallet_transfers(owner_id=owner_id, limit=limit)
+    return TransferListResponse(items=[TransferOut(**item) for item in items], count=len(items))
+
+
+@app.post("/wallets/transfer")
+def transfer_wallet_crystal(request: TransferRequest) -> dict:
+    try:
+        return engine.transfer_crystal(
+            crystal_id=request.crystal_id,
+            new_owner_id=request.new_owner_id,
+            actor_id=request.actor_id,
+            reason=request.reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

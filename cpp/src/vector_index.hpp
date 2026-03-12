@@ -19,6 +19,8 @@ public:
         int ivf_nprobe);
     void add(const std::vector<std::string>& ids, const std::vector<std::vector<float>>& vectors);
     std::vector<std::pair<std::string, float>> search(const std::vector<float>& query, int top_k) const;
+    void save_state(const std::string& path) const;
+    void load_state(const std::string& path);
     std::string mode() const;
     std::size_t size() const;
     std::vector<double> last_search_stats() const;

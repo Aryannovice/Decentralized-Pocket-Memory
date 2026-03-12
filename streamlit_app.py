@@ -1,5 +1,6 @@
 import html
 import re
+import statistics
 
 import requests
 import streamlit as st
@@ -180,6 +181,73 @@ _BADGE: dict = {
 }
 
 
+def record_mode_sample(mode: str, metrics: dict) -> None:
+    entry = {
+        "mode": mode,
+        "latency_ms": float(metrics.get("query_latency_ms", 0.0)),
+        "overlap": float(metrics.get("topk_overlap_vs_exact", 0.0)),
+        "retrieval_ms": float(metrics.get("retrieval", {}).get("total_ms", 0.0)),
+    }
+    st.session_state.mode_samples.append(entry)
+    st.session_state.mode_samples = st.session_state.mode_samples[-200:]
+
+
+def mode_comparison_rows() -> list[dict]:
+    grouped: dict[str, list[dict]] = {}
+    for sample in st.session_state.mode_samples:
+        grouped.setdefault(sample["mode"], []).append(sample)
+    rows: list[dict] = []
+    for mode, samples in grouped.items():
+        rows.append(
+            {
+                "mode": mode,
+                "queries": len(samples),
+                "mean_latency_ms": statistics.mean(s["latency_ms"] for s in samples),
+                "mean_overlap_vs_exact": statistics.mean(s["overlap"] for s in samples),
+                "mean_retrieval_ms": statistics.mean(s["retrieval_ms"] for s in samples),
+            }
+        )
+    rows.sort(key=lambda r: r["mode"])
+    return rows
+
+
+def summarize_query_usage_rows(items: list[dict]) -> list[dict]:
+    rows: list[dict] = []
+    for item in items:
+        used = item.get("crystals_used", [])
+        entries = used if isinstance(used, list) else []
+        top_id = ""
+        top_similarity = 0.0
+        contribution_sum = 0.0
+        reward_sum = 0.0
+        for idx, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                continue
+            crystal_id = str(entry.get("crystal_id", ""))
+            similarity = float(entry.get("similarity", 0.0))
+            contribution = float(entry.get("contribution_score", 0.0))
+            reward_delta = float(entry.get("reward_delta", 0.0))
+            contribution_sum += contribution
+            reward_sum += reward_delta
+            if idx == 0:
+                top_id = crystal_id
+                top_similarity = similarity
+        rows.append(
+            {
+                "query_id": item.get("query_id", ""),
+                "created_at": item.get("created_at", ""),
+                "latency_ms": float(item.get("latency_ms", 0.0)),
+                "reward_pool": float(item.get("reward_pool", 0.0)),
+                "crystal_count": len(entries),
+                "top_crystal_id": top_id,
+                "top_similarity": top_similarity,
+                "contribution_sum": contribution_sum,
+                "reward_delta_sum": reward_sum,
+            }
+        )
+    return rows
+
+
 def render_crystal_card(item: dict, rank: int) -> None:
     summary = _clean_display(item.get("clean_summary") or item.get("fact_summary", ""))
     score = float(item.get("score", 0.0))
@@ -216,6 +284,8 @@ current_mode = safe_get(f"{API_BASE}/index/mode").get("mode", "unknown")
 
 if "theme_mode" not in st.session_state:
     st.session_state.theme_mode = "Dark"
+if "mode_samples" not in st.session_state:
+    st.session_state.mode_samples = []
 
 st.sidebar.write("### Appearance")
 theme_mode = st.sidebar.selectbox(
@@ -234,7 +304,7 @@ st.sidebar.write(f"Health: {health.get('status', 'unreachable')}")
 st.sidebar.write(f"Current index mode: {current_mode}")
 
 st.sidebar.write("### Retrieval")
-mode_choice = st.sidebar.selectbox("Retrieval mode", ["flat", "hnsw", "ivfpq", "hybrid_binary"])
+mode_choice = st.sidebar.selectbox("Retrieval mode", ["flat", "hnsw", "ivfpq", "hybrid_binary", "binary_only"])
 if st.sidebar.button("Apply Retrieval Mode"):
     mode_resp = safe_post(f"{API_BASE}/index/mode", json_payload={"mode": mode_choice}, timeout=20)
     st.sidebar.json(mode_resp)
@@ -243,7 +313,9 @@ with st.expander("Source status"):
     if st.button("Refresh source status"):
         st.json(safe_get(f"{API_BASE}/sources/status"))
 
-tab_ingest, tab_query, tab_metrics = st.tabs(["Ingest", "Query", "Metrics"])
+tab_ingest, tab_query, tab_metrics, tab_registry, tab_wallet = st.tabs(
+    ["Ingest", "Query", "Metrics", "Registry", "Wallets"]
+)
 
 with tab_ingest:
     st.markdown("<div class='pm-section-title'>Ingest Data</div>", unsafe_allow_html=True)
@@ -311,6 +383,7 @@ with tab_query:
         if "error" in resp:
             st.error(resp["error"])
         else:
+            active_mode = safe_get(f"{API_BASE}/index/mode").get("mode", "unknown")
             st.markdown("### Answer")
             answer_text = (resp.get("answer") or "").strip()
             if answer_text:
@@ -321,9 +394,12 @@ with tab_query:
 
             st.markdown("### Query Stats")
             q_metrics = resp.get("metrics", {})
+            record_mode_sample(active_mode, q_metrics)
             qm1, qm2 = st.columns(2)
             qm1.metric("Latency (ms)", f"{float(q_metrics.get('query_latency_ms', 0.0)):.2f}")
             qm2.metric("Top-K overlap vs exact", f"{float(q_metrics.get('topk_overlap_vs_exact', 0.0)):.2f}")
+            if q_metrics.get("query_id"):
+                st.caption(f"Query ID: `{q_metrics.get('query_id')}`")
             retrieval_stats = q_metrics.get("retrieval", {})
             if retrieval_stats:
                 qm3, qm4, qm5 = st.columns(3)
@@ -374,6 +450,14 @@ with tab_metrics:
             c8.metric("Index size", f"{memory.get('index_size', 0)}")
             c9.metric("Compression ratio", f"{memory.get('compression_ratio', 1.0):.2f}")
 
+            c10, c11, c12 = st.columns(3)
+            c10.metric("Float vector bytes", f"{int(memory.get('float_vector_bytes', 0))}")
+            c11.metric("Binary vector bytes", f"{int(memory.get('binary_vector_bytes', 0))}")
+            c12.metric("Vector compression", f"{float(memory.get('vector_compression_ratio', 0.0)):.2f}x")
+
+            c13, _ = st.columns(2)
+            c13.metric("Total footprint bytes", f"{int(memory.get('total_footprint_bytes', 0))}")
+
             st.write("### Hybrid Retrieval Breakdown")
             h1, h2, h3, h4 = st.columns(4)
             h1.metric("Mean prefilter candidates", f"{retrieval.get('mean_prefilter_candidates', 0.0):.1f}")
@@ -407,3 +491,127 @@ with tab_metrics:
 
             with st.expander("Raw metrics JSON (debug)"):
                 st.json(metrics)
+
+    st.write("### Mode Comparison (Session)")
+    rows = mode_comparison_rows()
+    if rows:
+        st.dataframe(rows, width="stretch")
+    else:
+        st.caption("Run queries in multiple modes to compare flat/hybrid_binary/binary_only.")
+
+with tab_registry:
+    st.markdown("<div class='pm-section-title'>Crystal Registry</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='pm-muted'>Track crystal provenance, usage counts, reward balances, and query-to-crystal usage logs.</div>",
+        unsafe_allow_html=True,
+    )
+    col_a, col_b = st.columns(2)
+    with col_a:
+        crystal_limit = st.number_input("Crystal records", min_value=1, max_value=1000, value=100, step=10)
+    with col_b:
+        query_limit = st.number_input("Query usage records", min_value=1, max_value=1000, value=100, step=10)
+
+    if st.button("Refresh Registry Data"):
+        crystals_resp = safe_get(f"{API_BASE}/registry/crystals?limit={int(crystal_limit)}")
+        leaderboard_resp = safe_get(f"{API_BASE}/registry/leaderboard?limit=20")
+        queries_resp = safe_get(f"{API_BASE}/registry/queries?limit={int(query_limit)}")
+
+        if "error" in crystals_resp:
+            st.error(crystals_resp["error"])
+        else:
+            items = crystals_resp.get("items", [])
+            st.write("### Crystal Records")
+            st.caption(f"Total returned: {crystals_resp.get('count', len(items))}")
+            if items:
+                st.dataframe(items, width="stretch")
+            else:
+                st.info("No crystal registry records yet. Ingest data first.")
+
+        if "error" in leaderboard_resp:
+            st.error(leaderboard_resp["error"])
+        else:
+            st.write("### Leaderboard (Usage/Rewards)")
+            litems = leaderboard_resp.get("items", [])
+            if litems:
+                st.dataframe(litems, width="stretch")
+            else:
+                st.caption("No leaderboard entries yet.")
+
+        if "error" in queries_resp:
+            st.error(queries_resp["error"])
+        else:
+            st.write("### Query Usage Log")
+            qitems = queries_resp.get("items", [])
+            if qitems:
+                summary_rows = summarize_query_usage_rows(qitems)
+                st.dataframe(summary_rows, width="stretch")
+                with st.expander("Raw query usage JSON"):
+                    st.json(qitems)
+            else:
+                st.info("No query usage logs yet. Run a few queries.")
+
+with tab_wallet:
+    st.markdown("<div class='pm-section-title'>Wallets and Transferability</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='pm-muted'>View derived wallet balances from owned crystals and transfer crystal ownership.</div>",
+        unsafe_allow_html=True,
+    )
+
+    owner_id = st.text_input("Owner ID", value="local_user", key="wallet_owner_id")
+    wcol1, wcol2 = st.columns(2)
+    with wcol1:
+        crystal_limit = st.number_input("Owned crystals limit", min_value=1, max_value=1000, value=200, key="wallet_crystals_limit")
+    with wcol2:
+        transfer_limit = st.number_input("Transfer history limit", min_value=1, max_value=1000, value=200, key="wallet_transfers_limit")
+
+    if st.button("Refresh Wallet View", key="wallet_refresh"):
+        wallet_resp = safe_get(f"{API_BASE}/wallets/{owner_id}")
+        crystals_resp = safe_get(f"{API_BASE}/wallets/{owner_id}/crystals?limit={int(crystal_limit)}")
+        transfers_resp = safe_get(f"{API_BASE}/wallets/{owner_id}/transfers?limit={int(transfer_limit)}")
+
+        if "error" in wallet_resp:
+            st.error(wallet_resp["error"])
+        else:
+            st.write("### Wallet Snapshot")
+            st.json(wallet_resp)
+
+        if "error" in crystals_resp:
+            st.error(crystals_resp["error"])
+        else:
+            st.write("### Owned Crystals")
+            if crystals_resp:
+                st.dataframe(crystals_resp, width="stretch")
+            else:
+                st.caption("No crystals owned by this wallet.")
+
+        if "error" in transfers_resp:
+            st.error(transfers_resp["error"])
+        else:
+            st.write("### Transfer History")
+            transfer_items = transfers_resp.get("items", [])
+            if transfer_items:
+                st.dataframe(transfer_items, width="stretch")
+            else:
+                st.caption("No transfer events for this owner.")
+
+    st.write("### Transfer Crystal")
+    tcol1, tcol2 = st.columns(2)
+    with tcol1:
+        transfer_crystal_id = st.text_input("Crystal ID", key="transfer_crystal_id")
+        transfer_actor_id = st.text_input("Actor ID (optional)", value=owner_id, key="transfer_actor_id")
+    with tcol2:
+        transfer_new_owner = st.text_input("New Owner ID", key="transfer_new_owner")
+        transfer_reason = st.text_input("Reason (optional)", key="transfer_reason")
+    if st.button("Transfer Crystal", type="primary", key="transfer_crystal_button"):
+        payload = {
+            "crystal_id": transfer_crystal_id.strip(),
+            "new_owner_id": transfer_new_owner.strip(),
+            "actor_id": transfer_actor_id.strip() or None,
+            "reason": transfer_reason.strip() or None,
+        }
+        transfer_resp = safe_post(f"{API_BASE}/wallets/transfer", json_payload=payload, timeout=60)
+        if "error" in transfer_resp:
+            st.error(transfer_resp["error"])
+        else:
+            st.success("Transfer submitted.")
+            st.json(transfer_resp)

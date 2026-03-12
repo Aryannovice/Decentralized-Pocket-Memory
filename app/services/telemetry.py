@@ -60,7 +60,16 @@ class Telemetry:
             return 0.0
         return float(np.percentile(np.asarray(values, dtype=np.float32), q))
 
-    def snapshot(self, crystal_count: int, crystal_bytes: int, compressed_bytes: int, index_size: int) -> dict:
+    def snapshot(
+        self,
+        crystal_count: int,
+        crystal_bytes: int,
+        compressed_bytes: int,
+        index_size: int,
+        float_vector_bytes: int = 0,
+        binary_vector_bytes: int = 0,
+        total_footprint_bytes: int = 0,
+    ) -> dict:
         q_lat = list(self.query_latencies_ms)
         ingest = list(self.ingest_events)
         overlaps = list(self.retrieval_overlap)
@@ -77,6 +86,11 @@ class Telemetry:
         uptime_sec = max(time() - self.started_at, 1e-6)
         qps = len(q_lat) / uptime_sec
         compression_ratio = (compressed_bytes / crystal_bytes) if crystal_bytes > 0 else 1.0
+        vector_compression_ratio = (
+            float(float_vector_bytes) / float(binary_vector_bytes)
+            if binary_vector_bytes > 0
+            else 0.0
+        )
 
         return {
             "query_latency_ms": {
@@ -105,6 +119,10 @@ class Telemetry:
                 "crystal_bytes": crystal_bytes,
                 "compressed_bytes": compressed_bytes,
                 "compression_ratio": compression_ratio,
+                "float_vector_bytes": float_vector_bytes,
+                "binary_vector_bytes": binary_vector_bytes,
+                "vector_compression_ratio": vector_compression_ratio,
+                "total_footprint_bytes": total_footprint_bytes,
             },
             "sources": {
                 "source_counts": dict(self.source_counts),

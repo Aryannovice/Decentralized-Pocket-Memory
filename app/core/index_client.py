@@ -59,7 +59,9 @@ class VectorIndexClient:
                 self._mode = "cpp-flat"
         else:
             self._impl = InMemoryVectorIndex()
-            self._mode = "python-flat-fallback"
+            fallback_mode = mode if mode in {"flat", "hybrid_binary", "binary_only"} else "flat"
+            self._requested_mode = fallback_mode
+            self._mode = f"python-{fallback_mode}-fallback"
 
     @property
     def mode(self) -> str:
@@ -99,8 +101,10 @@ class VectorIndexClient:
 
     def reconfigure(self, mode: str) -> None:
         if not self._mode.startswith("cpp-"):
-            self._requested_mode = "flat"
-            self._mode = "python-flat-fallback"
+            if mode not in {"flat", "binary_only", "hybrid_binary"}:
+                mode = "flat"
+            self._requested_mode = mode
+            self._mode = f"python-{mode}-fallback"
             return
         self._requested_mode = mode
         self._impl.configure(
@@ -118,3 +122,16 @@ class VectorIndexClient:
         if self._mode.startswith("cpp-"):
             return int(self._impl.size())
         return int(self._impl.size())
+
+    def save_state(self, path: str) -> None:
+        if self._mode.startswith("cpp-") and hasattr(self._impl, "save_state"):
+            self._impl.save_state(path)
+            return
+        self._impl.save_state(path)
+
+    def load_state(self, path: str) -> None:
+        if self._mode.startswith("cpp-") and hasattr(self._impl, "load_state"):
+            self._impl.load_state(path)
+            self._mode = f"cpp-{self._impl.mode()}"
+            return
+        self._impl.load_state(path)
