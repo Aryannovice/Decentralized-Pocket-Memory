@@ -248,6 +248,25 @@ def summarize_query_usage_rows(items: list[dict]) -> list[dict]:
     return rows
 
 
+def summarize_crystal_rows(items: list[dict]) -> list[dict]:
+    rows: list[dict] = []
+    for item in items:
+        rows.append(
+            {
+                "crystal_id": str(item.get("crystal_id", "")),
+                "source_url": str(item.get("source_url", "")),
+                "owner_id": str(item.get("owner_id", "")),
+                "usage_count": int(item.get("usage_count", 0)),
+                "reward_balance": float(item.get("reward_balance", 0.0)),
+                "created_at": str(item.get("created_at", "")),
+            }
+        )
+    return rows
+
+
+
+
+
 def render_crystal_card(item: dict, rank: int) -> None:
     summary = _clean_display(item.get("clean_summary") or item.get("fact_summary", ""))
     score = float(item.get("score", 0.0))
@@ -286,6 +305,12 @@ if "theme_mode" not in st.session_state:
     st.session_state.theme_mode = "Dark"
 if "mode_samples" not in st.session_state:
     st.session_state.mode_samples = []
+if "registry_cache" not in st.session_state:
+    st.session_state.registry_cache = {"crystals": [], "leaderboard": [], "queries": []}
+if "blockchain_status_cache" not in st.session_state:
+    st.session_state.blockchain_status_cache = None
+if "blockchain_verify_result" not in st.session_state:
+    st.session_state.blockchain_verify_result = None
 
 st.sidebar.write("### Appearance")
 theme_mode = st.sidebar.selectbox(
@@ -511,93 +536,128 @@ with tab_registry:
     with col_b:
         query_limit = st.number_input("Query usage records", min_value=1, max_value=1000, value=100, step=10)
 
-    if st.button("Refresh Registry Data"):
+    if st.button("Refresh Registry Data") or st.session_state.registry_cache is None or not st.session_state.registry_cache.get("crystals", []):
+        # Initialize registry_cache if it's None
+        if st.session_state.registry_cache is None:
+            st.session_state.registry_cache = {"crystals": [], "leaderboard": [], "queries": []}
+            
         crystals_resp = safe_get(f"{API_BASE}/registry/crystals?limit={int(crystal_limit)}")
         leaderboard_resp = safe_get(f"{API_BASE}/registry/leaderboard?limit=20")
         queries_resp = safe_get(f"{API_BASE}/registry/queries?limit={int(query_limit)}")
 
+        # Ensure registry_cache is initialized before assignment
+        if st.session_state.registry_cache is None:
+            st.session_state.registry_cache = {"crystals": [], "leaderboard": [], "queries": []}
+
+        if "error" not in crystals_resp:
+            st.session_state.registry_cache["crystals"] = crystals_resp.get("items", [])
+        if "error" not in leaderboard_resp:
+            st.session_state.registry_cache["leaderboard"] = leaderboard_resp.get("items", [])
+        if "error" not in queries_resp:
+            st.session_state.registry_cache["queries"] = queries_resp.get("items", [])
+
         if "error" in crystals_resp:
             st.error(crystals_resp["error"])
-        else:
-            items = crystals_resp.get("items", [])
-            st.write("### Crystal Records")
-            st.caption(f"Total returned: {crystals_resp.get('count', len(items))}")
-            if items:
-                st.dataframe(items, width="stretch")
-            else:
-                st.info("No crystal registry records yet. Ingest data first.")
-
         if "error" in leaderboard_resp:
             st.error(leaderboard_resp["error"])
-        else:
-            st.write("### Leaderboard (Usage/Rewards)")
-            litems = leaderboard_resp.get("items", [])
-            if litems:
-                st.dataframe(litems, width="stretch")
-            else:
-                st.caption("No leaderboard entries yet.")
-
         if "error" in queries_resp:
             st.error(queries_resp["error"])
-        else:
-            st.write("### Query Usage Log")
-            qitems = queries_resp.get("items", [])
-            if qitems:
-                summary_rows = summarize_query_usage_rows(qitems)
-                st.dataframe(summary_rows, width="stretch")
-                with st.expander("Raw query usage JSON"):
-                    st.json(qitems)
-            else:
-                st.info("No query usage logs yet. Run a few queries.")
+
+    # Ensure registry_cache is always initialized
+    if st.session_state.registry_cache is None:
+        st.session_state.registry_cache = {"crystals": [], "leaderboard": [], "queries": []}
+    
+    items = st.session_state.registry_cache["crystals"]
+    st.write("### Crystal Records")
+    st.caption(f"Total returned: {len(items)}")
+    if items:
+        st.caption(f"Total crystals: {len(items)}")
+
+        display_rows = summarize_crystal_rows(items)
+        st.dataframe(display_rows, width="stretch")
+    else:
+        st.info("No crystal registry records yet. Ingest data first.")
+
+    st.write("### Leaderboard (Usage/Rewards)")
+    # Ensure registry_cache is initialized
+    if st.session_state.registry_cache is None:
+        st.session_state.registry_cache = {"crystals": [], "leaderboard": [], "queries": []}
+    
+    litems = st.session_state.registry_cache["leaderboard"]
+    if litems:
+        st.dataframe(litems, width="stretch")
+    else:
+        st.caption("No leaderboard entries yet.")
+
+    st.write("### Query Usage Log")
+    # Ensure registry_cache is initialized
+    if st.session_state.registry_cache is None:
+        st.session_state.registry_cache = {"crystals": [], "leaderboard": [], "queries": []}
+    
+    qitems = st.session_state.registry_cache["queries"]
+    if qitems:
+        summary_rows = summarize_query_usage_rows(qitems)
+        st.dataframe(summary_rows, width="stretch")
+        with st.expander("Raw query usage JSON"):
+            st.json(qitems)
+    else:
+        st.info("No query usage logs yet. Run a few queries.")
     
     # ===== BLOCKCHAIN INTEGRATION SECTION =====
     st.write("### 🔗 Blockchain Verification")
     
-    if st.button("Refresh Blockchain Status"):
+    if st.button("Refresh Blockchain Status") or st.session_state.blockchain_status_cache is None:
         blockchain_resp = safe_get(f"{API_BASE}/blockchain/status")
-        
         if "error" in blockchain_resp:
             st.error(f"Blockchain error: {blockchain_resp['error']}")
         else:
-            # Show account info
-            account = blockchain_resp.get("account", {})
-            st.markdown("**Account Information:**")
-            
-            if account.get("connected", False):
-                st.success(f"🟢 Connected to {account.get('network', 'Unknown')}")
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("Address", account.get("address", "N/A")[:10] + "..." if account.get("address") else "N/A")
-                with col2:
-                    st.metric("Balance", account.get("balance", "0"))
-            else:
-                st.warning(f"🟡 Not connected: {account.get('error', 'Unknown error')}")
-            
-            # Show verification stats
-            st.markdown("**Crystal Verification Status:**")
-            col1, col2, col3 = st.columns(3)
+            st.session_state.blockchain_status_cache = blockchain_resp
+
+    blockchain_resp = st.session_state.blockchain_status_cache
+    if isinstance(blockchain_resp, dict):
+        account = blockchain_resp.get("account", {})
+        st.markdown("**Account Information:**")
+
+        if account.get("connected", False):
+            st.success(f"🟢 Connected to {account.get('network', 'Unknown')}")
+            col1, col2 = st.columns(2)
             with col1:
-                st.metric("Verified on Blockchain", blockchain_resp.get("crystals_verified", 0))
+                st.metric("Address", account.get("address", "N/A")[:10] + "..." if account.get("address") else "N/A")
             with col2:
-                st.metric("Pending Verification", blockchain_resp.get("crystals_pending", 0))
-            with col3:
-                st.metric("Total Crystals", blockchain_resp.get("total_crystals", 0))
-            
-            # Crystal verification tool
-            st.markdown("**Verify Individual Crystal:**")
-            verify_crystal_id = st.text_input("Crystal ID to verify:", key="verify_crystal_id")
-            if st.button("Verify on Blockchain") and verify_crystal_id:
-                verify_resp = safe_post(f"{API_BASE}/blockchain/verify/{verify_crystal_id}", {})
-                if "error" in verify_resp:
-                    st.error(f"Verification failed: {verify_resp['error']}")
-                else:
-                    if verify_resp.get("verified", False):
-                        st.success("✅ Crystal verified on blockchain!")
-                        st.json(verify_resp)
-                    else:
-                        st.warning("❌ Crystal not found on blockchain")
-                        if "error" in verify_resp:
-                            st.error(verify_resp["error"])
+                st.metric("Balance", account.get("balance", "0"))
+        else:
+            st.warning(f"🟡 Not connected: {account.get('error', 'Unknown error')}")
+
+        st.markdown("**Crystal Verification Status:**")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Verified on Blockchain", blockchain_resp.get("crystals_verified", 0))
+        with col2:
+            st.metric("Pending Verification", blockchain_resp.get("crystals_pending", 0))
+        with col3:
+            st.metric("Total Crystals", blockchain_resp.get("total_crystals", 0))
+
+    st.markdown("**Verify Individual Crystal:**")
+    verify_crystal_id = st.text_input("Crystal ID to verify:", key="verify_crystal_id")
+    if st.button("Verify on Blockchain"):
+        crystal_id = verify_crystal_id.strip()
+        if not crystal_id:
+            st.warning("Please enter a crystal ID.")
+        else:
+            st.session_state.blockchain_verify_result = safe_post(
+                f"{API_BASE}/blockchain/verify/{crystal_id}",
+                {},
+            )
+
+    verify_resp = st.session_state.blockchain_verify_result
+    if isinstance(verify_resp, dict):
+        if "error" in verify_resp:
+            st.error(f"Verification failed: {verify_resp['error']}")
+        elif verify_resp.get("verified", False):
+            st.success("✅ Crystal verified on blockchain!")
+            st.json(verify_resp)
+        else:
+            st.warning("❌ Crystal not found on blockchain.")
 
 with tab_wallet:
     st.markdown("<div class='pm-section-title'>Wallets and Transferability</div>", unsafe_allow_html=True)
